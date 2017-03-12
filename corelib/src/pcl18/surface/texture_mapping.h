@@ -43,6 +43,7 @@
 #include <pcl/surface/reconstruction.h>
 #include <pcl/common/transforms.h>
 #include <pcl/TextureMesh.h>
+#include <rtabmap/core/ProgressState.h>
 #include <rtabmap/utilite/ULogger.h>
 #include <rtabmap/utilite/UStl.h>
 #include <rtabmap/utilite/UConversion.h>
@@ -118,7 +119,7 @@ namespace pcl
 
       /** \brief Constructor. */
       TextureMapping () :
-        f_ (), vector_field_ (), tex_files_ (), tex_material_ (), max_distance_(0.0f)
+        f_ (), vector_field_ (), tex_files_ (), tex_material_ (), max_distance_(0.0f), min_cluster_size_(50)
       {
       }
 
@@ -171,6 +172,12 @@ namespace pcl
 	  setMaxDistance(float maxDistance)
       {
     	  max_distance_ = maxDistance;
+      }
+
+      inline void
+	  setMinClusterSize(int size)
+      {
+    	  min_cluster_size_ = size;
       }
 
       /** \brief Map texture to a mesh synthesis algorithm
@@ -341,9 +348,10 @@ namespace pcl
       void 
       textureMeshwithMultipleCameras (pcl::TextureMesh &mesh, 
                                       const pcl::texture_mapping::CameraVector &cameras);
-      void
+      bool
       textureMeshwithMultipleCameras2 (pcl::TextureMesh &mesh,
-                                      const pcl::texture_mapping::CameraVector &cameras);
+                                      const pcl::texture_mapping::CameraVector &cameras,
+									  const ProgressState * callback = 0);
 
     protected:
       /** \brief mesh scale control. */
@@ -360,6 +368,9 @@ namespace pcl
 
       /** \brief maximum distance between camera and polygon to apply a texture */
       float max_distance_;
+
+      /** \brief Remove texture from small polygon clusters */
+      int min_cluster_size_;
 
       /** \brief Map texture to a face
         * \param[in] p1 the first point
@@ -414,7 +425,7 @@ namespace pcl
       inline bool
       isFaceProjected (const Camera &camera, 
                        const PointInT &p1, const PointInT &p2, const PointInT &p3, 
-                       pcl::PointXY &proj1, pcl::PointXY &proj2, pcl::PointXY &proj3, float & angle);
+                       pcl::PointXY &proj1, pcl::PointXY &proj2, pcl::PointXY &proj3);
 
       /** \brief Returns True if a point lays within a triangle
         * \details see http://www.blackpawn.com/texts/pointinpoly/default.html

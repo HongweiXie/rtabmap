@@ -158,11 +158,13 @@ public:
 	pcl::PointCloud<pcl::Normal>::Ptr normals;
 	pcl::IndicesPtr indices;
 	std::vector<pcl::Vertices> polygons;
+	std::vector<pcl::Vertices> polygonsLowRes;
 	rtabmap::Transform pose; // in rtabmap coordinates
 	bool visible;
 	rtabmap::CameraModel cameraModel;
 	float gain;
 	std::vector<Eigen::Vector2f> texCoords;
+	cv::Mat texture;
 };
 
 #endif /* UTIL_H_ */

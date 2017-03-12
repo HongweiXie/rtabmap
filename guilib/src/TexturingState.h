@@ -25,62 +25,48 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef ODOMETRYF2M_H_
-#define ODOMETRYF2M_H_
 
-#include <rtabmap/core/Odometry.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/pcl_base.h>
-#include <rtabmap/core/Link.h>
+#ifndef GUILIB_SRC_TEXTURINGSTATE_H_
+#define GUILIB_SRC_TEXTURINGSTATE_H_
+
+#include "rtabmap/gui/ProgressDialog.h"
+#include "rtabmap/core/ProgressState.h"
+#include <QApplication>
 
 namespace rtabmap {
 
-class Signature;
-class Registration;
-class Optimizer;
-
-class RTABMAP_EXP OdometryF2M : public Odometry
+class TexturingState : public QObject, public ProgressState
 {
+	Q_OBJECT
+
 public:
-	OdometryF2M(const rtabmap::ParametersMap & parameters = rtabmap::ParametersMap());
-	virtual ~OdometryF2M();
+	TexturingState(ProgressDialog * dialog): dialog_(dialog), canceled_(false)
+	{
+		connect(dialog_, SIGNAL(canceled()), this, SLOT(cancel()));
+	}
+	virtual ~TexturingState() {}
+	virtual bool callback(const std::string & msg) const
+	{
+		if(!msg.empty())
+		{
+			dialog_->appendText(msg.c_str());
+			dialog_->incrementStep();
+		}
+		QApplication::processEvents();
+		return !canceled_;
+	}
 
-	virtual void reset(const Transform & initialPose = Transform::getIdentity());
-	const Signature & getMap() const {return *map_;}
-	const Signature & getLastFrame() const {return *lastFrame_;}
-
-	virtual Odometry::Type getType() {return Odometry::kTypeF2M;}
+public slots:
+	void cancel()
+	{
+		canceled_ = true;
+	}
 
 private:
-	virtual Transform computeTransform(SensorData & data, const Transform & guess = Transform(), OdometryInfo * info = 0);
-
-private:
-	//Parameters
-	int maximumMapSize_;
-	float keyFrameThr_;
-	int visKeyFrameThr_;
-	int maxNewFeatures_;
-	float scanKeyFrameThr_;
-	int scanMaximumMapSize_;
-	float scanSubtractRadius_;
-	int bundleAdjustment_;
-	int bundleMaxFrames_;
-
-	Registration * regPipeline_;
-	Signature * map_;
-	Signature * lastFrame_;
-	std::vector<std::pair<pcl::PointCloud<pcl::PointNormal>::Ptr, pcl::IndicesPtr> > scansBuffer_;
-
-	std::map<int, std::map<int, cv::Point3f> > bundleWordReferences_; //<WordId, <FrameId, pt2D+depth>>
-	std::map<int, Transform> bundlePoses_;
-	std::multimap<int, Link> bundleLinks_;
-	std::map<int, CameraModel> bundleModels_;
-	std::map<int, int> bundlePoseReferences_;
-	int bundleSeq_;
-	Optimizer * sba_;
+	ProgressDialog * dialog_;
+	bool canceled_;
 };
 
 }
 
-#endif /* ODOMETRYF2M_H_ */
+#endif /* GUILIB_SRC_TEXTURINGSTATE_H_ */

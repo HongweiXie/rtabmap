@@ -217,6 +217,12 @@ Java_com_introlab_rtabmap_RTABMapLib_setFullResolution(
 	return app.setFullResolution(enabled);
 }
 JNIEXPORT void JNICALL
+Java_com_introlab_rtabmap_RTABMapLib_setSmoothing(
+		JNIEnv*, jobject, bool enabled)
+{
+	return app.setSmoothing(enabled);
+}
+JNIEXPORT void JNICALL
 Java_com_introlab_rtabmap_RTABMapLib_setAppendMode(
 		JNIEnv*, jobject, bool enabled)
 {
@@ -290,22 +296,31 @@ Java_com_introlab_rtabmap_RTABMapLib_save(
 	return app.save(databasePathC);
 }
 
+JNIEXPORT void JNICALL
+Java_com_introlab_rtabmap_RTABMapLib_cancelProcessing(
+		JNIEnv* env, jobject)
+{
+	return app.cancelProcessing();
+}
+
 JNIEXPORT bool JNICALL
 Java_com_introlab_rtabmap_RTABMapLib_exportMesh(
 		JNIEnv* env, jobject,
 		jstring filePath,
 		float cloudVoxelSize,
+		bool regenerateCloud,
 		bool meshing,
 		int textureSize,
 		int normalK,
-		float maxTextureDistance,
 		bool optimized,
 		float optimizedVoxelSize,
 		int optimizedDepth,
-		float optimizedDecimationFactor,
+		int optimizedMaxPolygons,
 		float optimizedColorRadius,
 		bool optimizedCleanWhitePolygons,
 		bool optimizedColorWhitePolygons,
+		float optimizedMaxTextureDistance,
+		int optimizedMinTextureClusterSize,
 		bool blockRendering)
 {
 	std::string filePathC;
@@ -313,17 +328,19 @@ Java_com_introlab_rtabmap_RTABMapLib_exportMesh(
 	return app.exportMesh(
 			filePathC,
 			cloudVoxelSize,
+			regenerateCloud,
 			meshing,
 			textureSize,
 			normalK,
-			maxTextureDistance,
 			optimized,
 			optimizedVoxelSize,
 			optimizedDepth,
-			optimizedDecimationFactor,
+			optimizedMaxPolygons,
 			optimizedColorRadius,
 			optimizedCleanWhitePolygons,
 			optimizedColorWhitePolygons,
+			optimizedMaxTextureDistance,
+			optimizedMinTextureClusterSize,
 			blockRendering);
 }
 

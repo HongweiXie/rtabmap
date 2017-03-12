@@ -50,13 +50,12 @@ class PointCloudDrawable {
   PointCloudDrawable(
   		  GLuint cloudShaderProgram,
   		  GLuint textureShaderProgram,
-    	  const Mesh & mesh,
-		  const cv::Mat & texture);
+    	  const Mesh & mesh);
   virtual ~PointCloudDrawable();
 
-  void updatePolygons(const std::vector<pcl::Vertices> & polygons);
+  void updatePolygons(const std::vector<pcl::Vertices> & polygons, const std::vector<pcl::Vertices> & polygonsLowRes = std::vector<pcl::Vertices>());
   void updateCloud(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr & cloud, const pcl::IndicesPtr & indices, float gain);
-  void updateMesh(const Mesh & mesh, const cv::Mat & texture);
+  void updateMesh(const Mesh & mesh);
   void setPose(const rtabmap::Transform & pose);
   void setVisible(bool visible) {visible_=visible;}
   void setGain(float gain) {gain_ = gain;}
@@ -76,13 +75,17 @@ class PointCloudDrawable {
 		  bool meshRendering = true,
 		  float pointSize = 3.0f,
 		  bool textureRendering = false,
-		  bool lighting = true);
+		  bool lighting = true,
+		  float distanceToCamSqr = 0.0f);
 
  private:
   // Vertex buffer of the point cloud geometry.
   GLuint vertex_buffers_;
   GLuint textures_;
   std::vector<GLuint> polygons_;
+  std::vector<GLuint> polygonsLowRes_;
+  std::vector<GLuint> verticesLowRes_;
+  std::vector<GLuint> verticesLowLowRes_;
   int nPoints_;
   glm::mat4 pose_;
   bool visible_;

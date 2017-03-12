@@ -285,7 +285,6 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_ui->rawLikelihoodPlot->showLegend(false);
 
 	_initProgressDialog = new ProgressDialog(this);
-	_initProgressDialog->setWindowTitle(tr("Progress dialog"));
 	_initProgressDialog->setMinimumWidth(800);
 	connect(_initProgressDialog, SIGNAL(canceled()), this, SLOT(cancelProgress()));
 
@@ -1491,7 +1490,8 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 				"  Yellow = New but Not Unique\n"
 				"  Red = In Vocabulary\n"
 		        "  Blue = In Vocabulary and in Previous Signature\n"
-				"  Pink = In Vocabulary and in Loop Closure Signature");
+				"  Pink = In Vocabulary and in Loop Closure Signature\n"
+				"  Gray = Not Quantized to Vocabulary");
 		}
 		// Set color code as tooltip
 		if(_ui->label_matchId->toolTip().isEmpty())
@@ -1503,7 +1503,8 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 				"  Yellow = Proximity Detection in Space\n"
 				"Feature Color code:\n"
 				"  Red = In Vocabulary\n"
-				"  Pink = In Vocabulary and in Loop Closure Signature");
+				"  Pink = In Vocabulary and in Loop Closure Signature\n"
+				"  Gray = Not Quantized to Vocabulary");
 		}
 
 		UDEBUG("time= %d ms", time.restart());
@@ -2108,21 +2109,6 @@ void MainWindow::updateMapCloud(
 		++i;
 	}
 
-	// activate actions
-	if(_state != kMonitoring && _state != kDetecting)
-	{
-		_ui->actionSave_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
-		_ui->actionView_high_res_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
-		_ui->actionExport_2D_scans_ply_pcd->setEnabled(!_createdScans.empty());
-		_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(!_gridLocalMaps.empty());
-		_ui->actionView_scans->setEnabled(!_createdScans.empty());
-#ifdef RTABMAP_OCTOMAP
-		_ui->actionExport_octomap->setEnabled(_octomap->octree()->size());
-#else
-		_ui->actionExport_octomap->setEnabled(false);
-#endif
-	}
-
 	//remove not used clouds
 	for(QMap<std::string, Transform>::iterator iter = viewerClouds.begin(); iter!=viewerClouds.end(); ++iter)
 	{
@@ -2282,6 +2268,38 @@ void MainWindow::updateMapCloud(
 
 	UDEBUG("");
 
+#ifdef RTABMAP_OCTOMAP
+	_cloudViewer->removeOctomap();
+	_cloudViewer->removeCloud("octomap_cloud");
+	if(_preferencesDialog->isOctomapUpdated())
+	{
+		UDEBUG("");
+		UTimer time;
+		_octomap->update(poses);
+		UINFO("Octomap update time = %fs", time.ticks());
+	}
+	if(_preferencesDialog->isOctomapShown())
+	{
+		UDEBUG("");
+		UTimer time;
+		if(_preferencesDialog->isOctomapCubeRendering())
+		{
+			_cloudViewer->addOctomap(_octomap, _preferencesDialog->getOctomapTreeDepth());
+		}
+		else
+		{
+			pcl::IndicesPtr obstacles(new std::vector<int>);
+			pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = _octomap->createCloud(_preferencesDialog->getOctomapTreeDepth(), obstacles.get());
+			if(obstacles->size())
+			{
+				_cloudViewer->addCloud("octomap_cloud", cloud);
+			}
+		}
+		UINFO("Octomap show 3d map time = %fs", time.ticks());
+	}
+	UDEBUG("");
+#endif
+
 	// Update occupancy grid map in 3D map view and graph view
 	if(_ui->graphicsView_graphView->isVisible())
 	{
@@ -2347,37 +2365,6 @@ void MainWindow::updateMapCloud(
 		_cloudViewer->removeOccupancyGridMap();
 	}
 
-#ifdef RTABMAP_OCTOMAP
-	_cloudViewer->removeOctomap();
-	_cloudViewer->removeCloud("octomap_cloud");
-	if(_preferencesDialog->isOctomapUpdated())
-	{
-		UDEBUG("");
-		UTimer time;
-		_octomap->update(poses);
-		UINFO("Octomap update time = %fs", time.ticks());
-	}
-	if(_preferencesDialog->isOctomapShown())
-	{
-		UDEBUG("");
-		UTimer time;
-		if(_preferencesDialog->isOctomapCubeRendering())
-		{
-			_cloudViewer->addOctomap(_octomap, _preferencesDialog->getOctomapTreeDepth());
-		}
-		else
-		{
-			pcl::IndicesPtr obstacles(new std::vector<int>);
-			pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = _octomap->createCloud(_preferencesDialog->getOctomapTreeDepth(), obstacles.get());
-			if(obstacles->size())
-			{
-				_cloudViewer->addCloud("octomap_cloud", cloud);
-			}
-		}
-		UINFO("Octomap show 3d map time = %fs", time.ticks());
-	}
-#endif
-
 	if(viewerClouds.contains("cloudOdom"))
 	{
 		if(!_preferencesDialog->isCloudsShown(1))
@@ -2436,6 +2423,21 @@ void MainWindow::updateMapCloud(
 			_cloudViewer->updateCloudPose("featuresOdom", _odometryCorrection);
 			_cloudViewer->setCloudPointSize("featuresOdom", _preferencesDialog->getFeaturesPointSize(1));
 		}
+	}
+
+	// activate actions
+	if(_state != kMonitoring && _state != kDetecting)
+	{
+		_ui->actionSave_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
+		_ui->actionView_high_res_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
+		_ui->actionExport_2D_scans_ply_pcd->setEnabled(!_createdScans.empty());
+		_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(!_gridLocalMaps.empty());
+		_ui->actionView_scans->setEnabled(!_createdScans.empty());
+#ifdef RTABMAP_OCTOMAP
+		_ui->actionExport_octomap->setEnabled(_octomap->octree()->size());
+#else
+		_ui->actionExport_octomap->setEnabled(false);
+#endif
 	}
 
 	UDEBUG("");
@@ -3632,7 +3634,12 @@ void MainWindow::drawKeypoints(const std::multimap<int, cv::KeyPoint> & refWords
 	{
 		int id = iter->first;
 		QColor color;
-		if(uContains(loopWords, id))
+		if(id<0)
+		{
+			// GRAY = NOT QUANTIZED
+			color = Qt::gray;
+		}
+		else if(uContains(loopWords, id))
 		{
 			// PINK = FOUND IN LOOP SIGNATURE
 			color = Qt::magenta;
@@ -3672,7 +3679,12 @@ void MainWindow::drawKeypoints(const std::multimap<int, cv::KeyPoint> & refWords
 	{
 		int id = iter->first;
 		QColor color;
-		if(uContains(refWords, id))
+		if(id<0)
+		{
+			// GRAY = NOT QUANTIZED
+			color = Qt::gray;
+		}
+		else if(uContains(refWords, id))
 		{
 			// PINK = FOUND IN LOOP SIGNATURE
 			color = Qt::magenta;
@@ -4778,6 +4790,11 @@ void MainWindow::postProcessing()
 							{
 								Transform transform;
 								RegistrationInfo info;
+								if(parameters.find(Parameters::kRegStrategy()) != parameters.end() &&
+									parameters.at(Parameters::kRegStrategy()).compare("1") == 0)
+								{
+									uInsert(parameters, ParametersPair(Parameters::kRegStrategy(), "2"));
+								}
 								Registration * registration = Registration::create(parameters);
 								transform = registration->computeTransformation(signatureFrom, signatureTo, Transform(), &info);
 								delete registration;

@@ -34,9 +34,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <tango_client_api.h>  // NOLINT
 #include <tango-gl/util.h>
 
-#include <scene.h>
-#include <CameraTango.h>
-#include <util.h>
+#include "scene.h"
+#include "CameraTango.h"
+#include "util.h"
+#include "ProgressionStatus.h"
 
 #include <rtabmap/core/RtabmapThread.h>
 #include <rtabmap/utilite/UEventsHandler.h>
@@ -128,6 +129,7 @@ class RTABMapApp : public UEventsHandler {
   void setAutoExposure(bool enabled);
   void setRawScanSaved(bool enabled);
   void setFullResolution(bool enabled);
+  void setSmoothing(bool enabled);
   void setAppendMode(bool enabled);
   void setDataRecorderMode(bool enabled);
   void setMaxCloudDepth(float value);
@@ -141,20 +143,23 @@ class RTABMapApp : public UEventsHandler {
   void resetMapping();
   void save(const std::string & databasePath);
   cv::Mat mergeTextures(pcl::TextureMesh & mesh, int textureSize) const;
+  void cancelProcessing();
   bool exportMesh(
 		  const std::string & filePath,
 		  float cloudVoxelSize,
+		  bool regenerateCloud,
 		  bool meshing,
 		  int textureSize,
 		  int normalK,
-		  float maxTextureDistance,
 		  bool optimized,
 		  float optimizedVoxelSize,
 		  int optimizedDepth,
-		  float optimizedDecimationFactor,
+		  int optimizedMaxPolygons,
 		  float optimizedColorRadius,
 		  bool optimizedCleanWhitePolygons,
 		  bool optimizedColorWhitePolygons,
+		  float optimizedMaxTextureDistance,
+		  int optimizedMinTextureClusterSize,
 		  bool blockRendering);
   bool postExportation(bool visualize);
   int postProcessing(int approach);
@@ -179,6 +184,7 @@ class RTABMapApp : public UEventsHandler {
   bool trajectoryMode_;
   bool autoExposure_;
   bool rawScanSaved_;
+  bool smoothing_;
   bool fullResolution_;
   bool appendMode_;
   float maxCloudDepth_;
@@ -202,6 +208,9 @@ class RTABMapApp : public UEventsHandler {
   int totalPolygons_;
   int lastDrawnCloudsCount_;
   float renderingTime_;
+  float previousRenderingTime_;
+  long processMemoryUsedBytes;
+  long processGPUMemoryUsedBytes;
 
   bool visualizingMesh_;
   bool exportedMeshUpdated_;
@@ -228,6 +237,8 @@ class RTABMapApp : public UEventsHandler {
 	std::map<int, rtabmap::Transform> rawPoses_;
 
 	std::pair<rtabmap::RtabmapEventInit::Status, std::string> status_;
+
+	rtabmap::ProgressionStatus progressionStatus_;
 };
 
 #endif  // TANGO_POINT_CLOUD_POINT_CLOUD_APP_H_

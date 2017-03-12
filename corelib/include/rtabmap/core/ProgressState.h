@@ -25,62 +25,19 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef ODOMETRYF2M_H_
-#define ODOMETRYF2M_H_
+#ifndef CORELIB_INCLUDE_RTABMAP_CORE_PROGRESSSTATE_H_
+#define CORELIB_INCLUDE_RTABMAP_CORE_PROGRESSSTATE_H_
 
-#include <rtabmap/core/Odometry.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/pcl_base.h>
-#include <rtabmap/core/Link.h>
 
-namespace rtabmap {
-
-class Signature;
-class Registration;
-class Optimizer;
-
-class RTABMAP_EXP OdometryF2M : public Odometry
+class ProgressState
 {
 public:
-	OdometryF2M(const rtabmap::ParametersMap & parameters = rtabmap::ParametersMap());
-	virtual ~OdometryF2M();
-
-	virtual void reset(const Transform & initialPose = Transform::getIdentity());
-	const Signature & getMap() const {return *map_;}
-	const Signature & getLastFrame() const {return *lastFrame_;}
-
-	virtual Odometry::Type getType() {return Odometry::kTypeF2M;}
-
-private:
-	virtual Transform computeTransform(SensorData & data, const Transform & guess = Transform(), OdometryInfo * info = 0);
-
-private:
-	//Parameters
-	int maximumMapSize_;
-	float keyFrameThr_;
-	int visKeyFrameThr_;
-	int maxNewFeatures_;
-	float scanKeyFrameThr_;
-	int scanMaximumMapSize_;
-	float scanSubtractRadius_;
-	int bundleAdjustment_;
-	int bundleMaxFrames_;
-
-	Registration * regPipeline_;
-	Signature * map_;
-	Signature * lastFrame_;
-	std::vector<std::pair<pcl::PointCloud<pcl::PointNormal>::Ptr, pcl::IndicesPtr> > scansBuffer_;
-
-	std::map<int, std::map<int, cv::Point3f> > bundleWordReferences_; //<WordId, <FrameId, pt2D+depth>>
-	std::map<int, Transform> bundlePoses_;
-	std::multimap<int, Link> bundleLinks_;
-	std::map<int, CameraModel> bundleModels_;
-	std::map<int, int> bundlePoseReferences_;
-	int bundleSeq_;
-	Optimizer * sba_;
+	virtual bool callback(const std::string & msg) const
+	{
+		return true;
+	}
+	virtual ~ProgressState(){}
 };
 
-}
 
-#endif /* ODOMETRYF2M_H_ */
+#endif /* CORELIB_INCLUDE_RTABMAP_CORE_PROGRESSSTATE_H_ */

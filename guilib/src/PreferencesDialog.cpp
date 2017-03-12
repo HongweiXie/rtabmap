@@ -752,6 +752,8 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->doubleSpinBox_g2o_robustKernelDelta->setObjectName(Parameters::kg2oRobustKernelDelta().c_str());
 	_ui->doubleSpinBox_g2o_baseline->setObjectName(Parameters::kg2oBaseline().c_str());
 
+	_ui->comboBox_gtsam_optimizer->setObjectName(Parameters::kGTSAMOptimizer().c_str());
+
 	_ui->graphPlan_goalReachedRadius->setObjectName(Parameters::kRGBDGoalReachedRadius().c_str());
 	_ui->graphPlan_goalsSavedInUserData->setObjectName(Parameters::kRGBDGoalsSavedInUserData().c_str());
 	_ui->graphPlan_stuckIterations->setObjectName(Parameters::kRGBDPlanStuckIterations().c_str());
@@ -823,12 +825,14 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 
 	// Occupancy grid
 	_ui->groupBox_grid_3d->setObjectName(Parameters::kGrid3D().c_str());
-	_ui->checkBox_grid_groundObstacle->setObjectName(Parameters::kGrid3DGroundIsObstacle().c_str());
+	_ui->checkBox_grid_groundObstacle->setObjectName(Parameters::kGridGroundIsObstacle().c_str());
 	_ui->doubleSpinBox_grid_resolution->setObjectName(Parameters::kGridCellSize().c_str());
 	_ui->spinBox_grid_decimation->setObjectName(Parameters::kGridDepthDecimation().c_str());
 	_ui->doubleSpinBox_grid_maxDepth->setObjectName(Parameters::kGridDepthMax().c_str());
 	_ui->doubleSpinBox_grid_minDepth->setObjectName(Parameters::kGridDepthMin().c_str());
 	_ui->lineEdit_grid_roi->setObjectName(Parameters::kGridDepthRoiRatios().c_str());
+	_ui->checkBox_grid_projRayTracing->setObjectName(Parameters::kGridProjRayTracing().c_str());
+	connect(_ui->checkBox_grid_projRayTracing, SIGNAL(stateChanged(int)), this, SLOT(useGridProjRayTracing()));
 	_ui->doubleSpinBox_grid_footprintLength->setObjectName(Parameters::kGridFootprintLength().c_str());
 	_ui->doubleSpinBox_grid_footprintWidth->setObjectName(Parameters::kGridFootprintWidth().c_str());
 	_ui->doubleSpinBox_grid_footprintHeight->setObjectName(Parameters::kGridFootprintHeight().c_str());
@@ -3747,6 +3751,22 @@ void PreferencesDialog::useOdomFeatures()
 	}
 }
 
+
+void PreferencesDialog::useGridProjRayTracing()
+{
+	if(this->isVisible() && _ui->checkBox_grid_projRayTracing->isChecked() && _ui->groupBox_grid_3d->isChecked())
+	{
+		int r = QMessageBox::question(this, tr("Using ray tracing for 2D projection..."),
+				tr("Currently the 3D occupancy grid parameter is checked, but 2D ray tracing "
+				  "only works with 2D occupancy grids. Do you want to uncheck 3D occupancy grid?"), QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+
+		if(r == QMessageBox::Yes)
+		{
+			_ui->groupBox_grid_3d->setChecked(false);
+		}
+	}
+}
+
 void PreferencesDialog::changeWorkingDirectory()
 {
 	QString directory = QFileDialog::getExistingDirectory(this, tr("Working directory"), _ui->lineEdit_workingDirectory->text());
@@ -5101,7 +5121,7 @@ void PreferencesDialog::calibrate()
 			return;
 		}
 
-		bool freenect2 = this->getSourceType() == kSrcFreenect2;
+		bool freenect2 = driver == kSrcFreenect2;
 		_calibrationDialog->setStereoMode(this->getSourceType() != kSrcRGB, freenect2?"rgb":"left", freenect2?"depth":"right"); // RGB+Depth or left+right
 		_calibrationDialog->setSwitchedImages(freenect2);
 		_calibrationDialog->setSavingDirectory(this->getCameraInfoDir());
