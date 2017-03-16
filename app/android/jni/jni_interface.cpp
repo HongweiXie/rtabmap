@@ -223,6 +223,12 @@ Java_com_introlab_rtabmap_RTABMapLib_setSmoothing(
 	return app.setSmoothing(enabled);
 }
 JNIEXPORT void JNICALL
+Java_com_introlab_rtabmap_RTABMapLib_setCameraColor(
+		JNIEnv*, jobject, bool enabled)
+{
+	return app.setCameraColor(enabled);
+}
+JNIEXPORT void JNICALL
 Java_com_introlab_rtabmap_RTABMapLib_setAppendMode(
 		JNIEnv*, jobject, bool enabled)
 {
@@ -241,10 +247,10 @@ Java_com_introlab_rtabmap_RTABMapLib_setMaxCloudDepth(
 	return app.setMaxCloudDepth(value);
 }
 JNIEXPORT void JNICALL
-Java_com_introlab_rtabmap_RTABMapLib_setMeshDecimation(
+Java_com_introlab_rtabmap_RTABMapLib_setCloudDensityLevel(
 		JNIEnv*, jobject, int value)
 {
-	return app.setMeshDecimation(value);
+	return app.setCloudDensityLevel(value);
 }
 JNIEXPORT void JNICALL
 Java_com_introlab_rtabmap_RTABMapLib_setMeshAngleTolerance(
@@ -259,16 +265,22 @@ Java_com_introlab_rtabmap_RTABMapLib_setMeshTriangleSize(
 	return app.setMeshTriangleSize(value);
 }
 JNIEXPORT void JNICALL
-Java_com_introlab_rtabmap_RTABMapLib_setMinClusterSize(
-		JNIEnv*, jobject, int value)
+Java_com_introlab_rtabmap_RTABMapLib_setClusterRatio(
+		JNIEnv*, jobject, float value)
 {
-	return app.setMinClusterSize(value);
+	return app.setClusterRatio(value);
 }
 JNIEXPORT void JNICALL
 Java_com_introlab_rtabmap_RTABMapLib_setMaxGainRadius(
 		JNIEnv*, jobject, float value)
 {
 	return app.setMaxGainRadius(value);
+}
+JNIEXPORT void JNICALL
+Java_com_introlab_rtabmap_RTABMapLib_setRenderingTextureDecimation(
+		JNIEnv*, jobject, int value)
+{
+	return app.setRenderingTextureDecimation(value);
 }
 JNIEXPORT jint JNICALL
 Java_com_introlab_rtabmap_RTABMapLib_setMappingParameter(

@@ -128,16 +128,18 @@ class RTABMapApp : public UEventsHandler {
   void setGridVisible(bool visible);
   void setAutoExposure(bool enabled);
   void setRawScanSaved(bool enabled);
+  void setCameraColor(bool enabled);
   void setFullResolution(bool enabled);
   void setSmoothing(bool enabled);
   void setAppendMode(bool enabled);
   void setDataRecorderMode(bool enabled);
   void setMaxCloudDepth(float value);
-  void setMeshDecimation(int value);
+  void setCloudDensityLevel(int value);
   void setMeshAngleTolerance(float value);
   void setMeshTriangleSize(int value);
-  void setMinClusterSize(int value);
+  void setClusterRatio(float value);
   void setMaxGainRadius(float value);
+  void setRenderingTextureDecimation(int value);
   int setMappingParameter(const std::string & key, const std::string & value);
 
   void resetMapping();
@@ -165,11 +167,14 @@ class RTABMapApp : public UEventsHandler {
   int postProcessing(int approach);
 
  protected:
-  virtual void handleEvent(UEvent * event);
+  virtual bool handleEvent(UEvent * event);
 
  private:
   rtabmap::ParametersMap getRtabmapParameters();
   bool smoothMesh(int id, Mesh & mesh);
+  void gainCompensation(bool full = false);
+  std::vector<pcl::Vertices> filterOrganizedPolygons(const std::vector<pcl::Vertices> & polygons, int cloudSize) const;
+  std::vector<pcl::Vertices> filterPolygons(const std::vector<pcl::Vertices> & polygons, int cloudSize) const;
 
  private:
   rtabmap::CameraTango * camera_;
@@ -185,32 +190,38 @@ class RTABMapApp : public UEventsHandler {
   bool autoExposure_;
   bool rawScanSaved_;
   bool smoothing_;
+  bool cameraColor_;
   bool fullResolution_;
   bool appendMode_;
   float maxCloudDepth_;
-  int meshDecimation_;
+  int cloudDensityLevel_;
   int meshTrianglePix_;
   float meshAngleToleranceDeg_;
-  int minClusterSize_;
+  float clusterRatio_;
   float maxGainRadius_;
+  int renderingTextureDecimation_;
 
   rtabmap::ParametersMap mappingParameters_;
 
   bool paused_;
   bool dataRecorderMode_;
   bool clearSceneOnNextRender_;
-  bool optimizeOpenedDatabase_;
+  bool openingDatabase_;
+  bool exporting_;
+  bool postProcessing_;
   bool filterPolygonsOnNextRender_;
   int gainCompensationOnNextRender_;
   bool bilateralFilteringOnNextRender_;
   bool cameraJustInitialized_;
+  int meshDecimation_;
   int totalPoints_;
   int totalPolygons_;
   int lastDrawnCloudsCount_;
   float renderingTime_;
-  float previousRenderingTime_;
+  double lastPostRenderEventTime_;
   long processMemoryUsedBytes;
   long processGPUMemoryUsedBytes;
+  std::map<std::string, float> bufferedStatsData_;
 
   bool visualizingMesh_;
   bool exportedMeshUpdated_;
@@ -221,7 +232,7 @@ class RTABMapApp : public UEventsHandler {
   // movement and point cloud.
   Scene main_scene_;
 
-	std::list<rtabmap::Statistics> rtabmapEvents_;
+	std::list<rtabmap::RtabmapEvent*> rtabmapEvents_;
 	std::list<rtabmap::OdometryEvent> odomEvents_;
 	std::list<rtabmap::Transform> poseEvents_;
 

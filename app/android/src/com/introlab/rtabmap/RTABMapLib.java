@@ -71,17 +71,19 @@ public class RTABMapLib
     public static native void setRawScanSaved(boolean enabled);
     public static native void setFullResolution(boolean enabled);
     public static native void setSmoothing(boolean enabled);
+    public static native void setCameraColor(boolean enabled);
     public static native void setAppendMode(boolean enabled);
     public static native void setDataRecorderMode(boolean enabled);
     public static native void setMaxCloudDepth(float value);
     public static native void setPointSize(float value);
     public static native void setLighting(boolean enabled);
     public static native void setBackfaceCulling(boolean enabled);
-    public static native void setMeshDecimation(int value);
+    public static native void setCloudDensityLevel(int value);
     public static native void setMeshAngleTolerance(float value);
     public static native void setMeshTriangleSize(int value);
-    public static native void setMinClusterSize(int value);
+    public static native void setClusterRatio(float value);
     public static native void setMaxGainRadius(float value);
+    public static native void setRenderingTextureDecimation(int value);
     public static native int setMappingParameter(String key, String value);
 
     public static native void resetMapping();

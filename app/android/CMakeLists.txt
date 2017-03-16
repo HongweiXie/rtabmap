@@ -1,4 +1,15 @@
 
+option(DISABLE_LOG        "Disable Android logging (should be true in release)"    ON)
+IF(DISABLE_LOG)
+  ADD_DEFINITIONS(-DDISABLE_LOG)
+ENDIF(DISABLE_LOG)
+
+IF(DISABLE_LOG)
+   SET(ANDROID_DEBUGGABLE false)
+ELSE()
+   SET(ANDROID_DEBUGGABLE true)
+ENDIF()
+
 add_subdirectory(jni)
 
 
