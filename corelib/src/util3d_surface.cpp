@@ -54,7 +54,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 PCL_INSTANTIATE(OrganizedFastMesh, (pcl::PointXYZRGBNormal))
 
 #include <pcl/features/impl/normal_3d_omp.hpp>
+#if PCL_VERSION_COMPARE(<=, 1, 8, 0)
+#ifdef PCL_ONLY_CORE_POINT_TYPES
 PCL_INSTANTIATE_PRODUCT(NormalEstimationOMP, ((pcl::PointXYZRGB))((pcl::Normal)))
+#endif
+#endif
 #endif
 
 namespace rtabmap
