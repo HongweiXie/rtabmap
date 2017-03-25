@@ -10,4 +10,4 @@ build.log
 build_android/
 rtabmap_cloud.pcd
 rtabmap_trajectory.txt
-
+build/
