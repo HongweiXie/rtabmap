@@ -56,12 +56,14 @@
     <string name="pref_default_triangle">2</string>
     <string name="pref_key_rendering_texture_decimation">pref_key_rendering_texture_decimation</string>
     <string name="pref_default_rendering_texture_decimation">4</string>
+    <string name="pref_key_blending">pref_key_blending</string>
+    <string name="pref_default_blending">true</string>
+    <string name="pref_key_background_color">pref_key_background_color</string>
+    <string name="pref_default_background_color">0.2</string>
     <string name="pref_key_nodes_filtering">pref_key_nodes_filtering</string>
     <string name="pref_default_nodes_filtering">false</string>
     <string name="pref_key_append">pref_key_append</string>
     <string name="pref_default_append">true</string>
-    <string name="pref_key_auto_exposure">pref_key_auto_exposure</string>
-    <string name="pref_default_auto_exposure">true</string>
     <string name="pref_key_resolution">pref_key_resolution</string>
     <string name="pref_default_resolution">false</string>
     <string name="pref_key_smoothing">pref_key_smoothing</string>
@@ -101,7 +103,7 @@
     <string name="pref_default_db_in_memory">true</string>
     
     <string name="pref_key_cloud_voxel">pref_key_cloud_voxel</string>
-    <string name="pref_default_cloud_voxel">0</string>
+    <string name="pref_default_cloud_voxel">0.01</string>
     <string name="pref_key_texture_size">pref_key_texture_size</string>
     <string name="pref_default_texture_size">4096</string>
     <string name="pref_key_normal_k">pref_key_normal_k</string>
@@ -113,7 +115,7 @@
     <string name="pref_key_block_render">pref_key_block_render</string>
     <string name="pref_default_block_render">false</string>
     <string name="pref_key_opt_depth">pref_key_opt_depth</string>
-    <string name="pref_default_opt_depth">8</string>
+    <string name="pref_default_opt_depth">0</string>
     <string name="pref_key_opt_color_radius">pref_key_opt_color_radius</string>
     <string name="pref_default_opt_color_radius">0.05</string>
     <string name="pref_key_opt_clean_white">pref_key_opt_clean_white</string>
@@ -139,6 +141,10 @@
     <string name="pref_summary_depth">Points over the maximum depth are not rendered.</string>
     <string name="pref_title_point_size">Point Size</string>
     <string name="pref_summary_point_size">Size of the points when rendering only the point cloud.</string>
+    <string name="pref_title_blending">Blending</string>
+    <string name="pref_summary_blending">Blend close surfaces together to get more smooth colors on overlapping surfaces. May decrease rendering frame rate.</string>
+    <string name="pref_title_background_color">Background Color</string>
+    <string name="pref_summary_background_color"></string>
     <string name="pref_title_nodes_filtering">Nodes Filtering</string>
     <string name="pref_summary_nodes_filtering">Render only the newest point cloud of a loop closure.</string>
 
@@ -257,6 +263,32 @@
         <item>"4"</item>
         <item>"8"</item>
     </string-array>
+    <string-array name="pref_background_color_keys">
+        <item>"White"</item>
+        <item>"0.9"</item>
+        <item>"Light Gray"</item>
+        <item>"0.7"</item>
+        <item>"0.6"</item>
+        <item>"Gray"</item>
+        <item>"0.4"</item>
+        <item>"0.3"</item>
+        <item>"Dark Gray"</item>
+        <item>"0.1"</item>
+        <item>"Black"</item>
+    </string-array>
+    <string-array name="pref_background_color_values">
+        <item>"1.0"</item>
+        <item>"0.9"</item>
+        <item>"0.8"</item>
+        <item>"0.7"</item>
+        <item>"0.6"</item>
+        <item>"0.5"</item>
+        <item>"0.4"</item>
+        <item>"0.3"</item>
+        <item>"0.2"</item>
+        <item>"0.1"</item>
+        <item>"0.0"</item>
+    </string-array>
 
     <string name="pref_title_mapping_sub">Mapping&#8230;</string>
     <string name="pref_title_mapping">Mapping</string>
@@ -265,8 +297,6 @@
     <string name="pref_title_mapping_database">Database</string>
     <string name="pref_title_append">Append Mode</string>
     <string name="pref_summary_append">When resuming mapping, wait for a relocalization on the current map before starting a new map.</string>
-    <string name="pref_title_auto_exposure">Auto Exposure</string>
-    <string name="pref_summary_auto_exposure">Adjust camera exposure depending on the lighting to get always maximum contrast. This may change texture color between scanned images. Color correction option in Post-Processing can help to uniformize colors. May not work on some devices.</string>
     <string name="pref_title_resolution">HD Mode</string>
     <string name="pref_summary_resolution">Save HD images of the color camera if you want very detailed textures. More memory will be required.</string>
     <string name="pref_title_smoothing">Smoothing</string>
@@ -623,13 +653,24 @@
     <string name="pref_title_opt_voxel">Voxel Size</string>
     <string name="pref_summary_opt_voxel">Increasing this can reduce reconstruction time at the cost of less geometry precision.</string>
     <string name="pref_title_opt_depth">Reconstruction Depth</string>
-    <string name="pref_summary_opt_depth">Lowering this parameter decreases reconstruction time, but geometry precision is lower.</string>
+    <string name="pref_summary_opt_depth">Lowering this parameter decreases reconstruction time, but geometry precision is lower. Minimum polygon size: map length / 2^depth). \"Auto\" means that depth is chosen so that polygon size is just under 3 cm.</string>
     <string name="pref_title_opt_color_radius">Color Radius</string>
     <string name="pref_summary_opt_color_radius">Radius used to transfer nearest color from the point cloud to reconstructed mesh. When exporting with texture, if Clean Mesh is also enabled, this will limit the number of polygons textured in holes.</string>
     <string name="pref_title_opt_clean_white">Clean Mesh</string>
     <string name="pref_summary_opt_clean_white">Clean mesh from textureless or colorless reconstructed polygons.</string>
 
+    <string-array name="pref_opt_depth_keys">
+        <item>"Auto"</item>
+        <item>"12"</item>
+        <item>"11"</item>
+        <item>"10"</item>
+        <item>"9"</item>
+        <item>"8"</item>
+        <item>"7"</item>
+        <item>"6"</item>
+    </string-array>
     <string-array name="pref_opt_depth_values">
+        <item>"0"</item>
         <item>"12"</item>
         <item>"11"</item>
         <item>"10"</item>

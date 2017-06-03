@@ -29,9 +29,12 @@ class Camera : public Transform {
 
   void SetAspectRatio(const float aspect_ratio);
   void SetFieldOfView(const float fov);
+  void SetNearFarClipPlanes(const float near, const float far);
 
   glm::mat4 GetViewMatrix();
   glm::mat4 GetProjectionMatrix();
+  float getNearClipPlane() const {return near_clip_plane_;}
+  float getFarClipPlane() const {return far_clip_plane_;}
 
   /**
    * Create an OpenGL perspective matrix from window size, camera intrinsics, and clip settings.

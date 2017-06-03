@@ -807,7 +807,7 @@ ParametersMap DBDriverSqlite3::getLastParametersQuery() const
 
 std::map<std::string, float> DBDriverSqlite3::getStatisticsQuery(int nodeId, double & stamp) const
 {
-	UDEBUG("");
+	UDEBUG("nodeId=%d", nodeId);
 	std::map<std::string, float> data;
 	if(_ppDb)
 	{
@@ -2211,7 +2211,7 @@ void DBDriverSqlite3::loadSignaturesQuery(const std::list<int> & ids, std::list<
 						}
 						else
 						{
-							UFATAL("Wrong format of the Data.calibration field (size=%d bytes)", dataSize);
+							UFATAL("Wrong format of the Data.calibration field (size=%d bytes, db version=%s)", dataSize, _version.c_str());
 						}
 
 						(*iter)->sensorData().setCameraModels(models);

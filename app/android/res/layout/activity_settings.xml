@@ -51,6 +51,18 @@
    			android:entries="@array/pref_rendering_texture_decimation_keys"
    			android:entryValues="@array/pref_rendering_texture_decimation_values"
    			android:defaultValue="@string/pref_default_rendering_texture_decimation"/>
+        <ListPreference 
+            android:key="@string/pref_key_background_color"
+    		android:title="@string/pref_title_background_color"
+    		android:summary="@string/pref_summary_background_color"
+   			android:entries="@array/pref_background_color_keys"
+   			android:entryValues="@array/pref_background_color_values"
+   			android:defaultValue="@string/pref_default_background_color"/>
+        <SwitchPreference
+            android:key="@string/pref_key_blending"
+            android:title="@string/pref_title_blending"
+            android:summary="@string/pref_summary_blending"
+            android:defaultValue="@string/pref_default_blending"/>
         <SwitchPreference
             android:key="@string/pref_key_nodes_filtering"
             android:title="@string/pref_title_nodes_filtering"
@@ -72,11 +84,6 @@
 	            android:title="@string/pref_title_append"
 	            android:summary="@string/pref_summary_append"
 	            android:defaultValue="@string/pref_default_append"/>
-		    <SwitchPreference
-	            android:key="@string/pref_key_auto_exposure"
-	            android:title="@string/pref_title_auto_exposure"
-	            android:summary="@string/pref_summary_auto_exposure"
-	            android:defaultValue="@string/pref_default_auto_exposure"/>
 		    <SwitchPreference
 	            android:key="@string/pref_key_resolution"
 	            android:title="@string/pref_title_resolution"
@@ -258,7 +265,7 @@
 		            android:key="@string/pref_key_opt_depth"
 		    		android:title="@string/pref_title_opt_depth"
 		    		android:summary="@string/pref_summary_opt_depth"
-		   			android:entries="@array/pref_opt_depth_values"
+		   			android:entries="@array/pref_opt_depth_keys"
 		   			android:entryValues="@array/pref_opt_depth_values"
 		   			android:defaultValue="@string/pref_default_opt_depth"/>
 		        

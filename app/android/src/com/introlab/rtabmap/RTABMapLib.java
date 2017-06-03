@@ -58,6 +58,7 @@ public class RTABMapLib
     
 
     public static native void setPausedMapping(boolean paused);
+    public static native void setOnlineBlending(boolean enabled);
     public static native void setMapCloudShown(boolean shown);
     public static native void setOdomCloudShown(boolean shown);
     public static native void setMeshRendering(boolean enabled, boolean withTexture);
@@ -67,7 +68,6 @@ public class RTABMapLib
     public static native void setNodesFiltering(boolean enabled);
     public static native void setGraphVisible(boolean visible);
     public static native void setGridVisible(boolean visible);
-    public static native void setAutoExposure(boolean enabled);
     public static native void setRawScanSaved(boolean enabled);
     public static native void setFullResolution(boolean enabled);
     public static native void setSmoothing(boolean enabled);
@@ -85,6 +85,7 @@ public class RTABMapLib
     public static native void setClusterRatio(float value);
     public static native void setMaxGainRadius(float value);
     public static native void setRenderingTextureDecimation(int value);
+    public static native void setBackgroundColor(float gray);
     public static native int setMappingParameter(String key, String value);
 
     public static native void resetMapping();

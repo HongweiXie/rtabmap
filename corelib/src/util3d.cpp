@@ -595,9 +595,25 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr cloudFromDisparity(
 		std::vector<int> * validIndices)
 {
 	UASSERT(imageDisparity.type() == CV_32FC1 || imageDisparity.type()==CV_16SC1);
-	UASSERT(imageDisparity.rows % decimation == 0);
-	UASSERT(imageDisparity.cols % decimation == 0);
 	UASSERT(decimation >= 1);
+
+	if(imageDisparity.rows % decimation != 0 || imageDisparity.cols % decimation != 0)
+	{
+		int oldDecimation = decimation;
+		while(decimation >= 1)
+		{
+			if(imageDisparity.rows % decimation == 0 && imageDisparity.cols % decimation == 0)
+			{
+				break;
+			}
+			--decimation;
+		}
+
+		if(imageDisparity.rows % oldDecimation != 0 || imageDisparity.cols % oldDecimation != 0)
+		{
+			UWARN("Decimation (%d) is not valid for current image size (depth=%dx%d). Highest compatible decimation used=%d.", oldDecimation, imageDisparity.cols, imageDisparity.rows, decimation);
+		}
+	}
 
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -686,7 +702,24 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudFromDisparityRGB(
 			(imageDisparity.type() == CV_32FC1 || imageDisparity.type()==CV_16SC1));
 	UASSERT(imageRgb.channels() == 3 || imageRgb.channels() == 1);
 	UASSERT(decimation >= 1);
-	UASSERT(imageDisparity.rows % decimation == 0 && imageDisparity.cols % decimation == 0);
+
+	if(imageDisparity.rows % decimation != 0 || imageDisparity.cols % decimation != 0)
+	{
+		int oldDecimation = decimation;
+		while(decimation >= 1)
+		{
+			if(imageDisparity.rows % decimation == 0 && imageDisparity.cols % decimation == 0)
+			{
+				break;
+			}
+			--decimation;
+		}
+
+		if(imageDisparity.rows % oldDecimation != 0 || imageDisparity.cols % oldDecimation != 0)
+		{
+			UWARN("Decimation (%d) is not valid for current image size (depth=%dx%d). Highest compatible decimation used=%d.", oldDecimation, imageDisparity.cols, imageDisparity.rows, decimation);
+		}
+	}
 
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 
@@ -770,21 +803,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudFromStereoImages(
 	UASSERT(imageLeft.channels() == 3 || imageLeft.channels() == 1);
 	UASSERT(imageLeft.rows == imageRight.rows &&
 			imageLeft.cols == imageRight.cols);
-	UASSERT(decimation >= 1);
+	UASSERT(decimation >= 1.0f);
 
 	cv::Mat leftColor = imageLeft;
 	cv::Mat rightMono = imageRight;
-
-	StereoCameraModel modelDecimation = model;
-
-	if(leftColor.rows % decimation != 0 ||
-	   leftColor.cols % decimation != 0)
-	{
-		leftColor = util2d::decimate(leftColor, decimation);
-		rightMono = util2d::decimate(rightMono, decimation);
-		modelDecimation.scale(1/float(decimation));
-		decimation = 1;
-	}
 
 	cv::Mat leftMono;
 	if(leftColor.channels() == 3)
@@ -799,7 +821,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudFromStereoImages(
 	return cloudFromDisparityRGB(
 			leftColor,
 			util2d::disparityFromStereoImages(leftMono, rightMono, parameters),
-			modelDecimation,
+			model,
 			decimation,
 			maxDepth,
 			minDepth,
@@ -968,12 +990,9 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr RTABMAP_EXP cloudRGBFromSensorData(
 		decimation = 1;
 	}
 
-	UASSERT(!sensorData.imageRaw().empty());
-	UASSERT((!sensorData.depthRaw().empty() && sensorData.cameraModels().size()) ||
-			(!sensorData.rightRaw().empty() && sensorData.stereoCameraModel().isValidForProjection()));
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-	if(!sensorData.depthRaw().empty() && sensorData.cameraModels().size())
+	if(!sensorData.imageRaw().empty() && !sensorData.depthRaw().empty() && sensorData.cameraModels().size())
 	{
 		//depth
 		UDEBUG("");
@@ -992,10 +1011,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr RTABMAP_EXP cloudRGBFromSensorData(
 				cv::Mat depth(sensorData.depthRaw(), cv::Rect(subDepthWidth*i, 0, subDepthWidth, sensorData.depthRaw().rows));
 				CameraModel model = sensorData.cameraModels()[i];
 				if( roiRatios.size() == 4 &&
-					(roiRatios[0] > 0.0f ||
-					roiRatios[1] > 0.0f ||
-					roiRatios[2] > 0.0f ||
-					roiRatios[3] > 0.0f))
+					((roiRatios[0] > 0.0f && roiRatios[0] <= 1.0f) ||
+					 (roiRatios[1] > 0.0f && roiRatios[1] <= 1.0f) ||
+					 (roiRatios[2] > 0.0f && roiRatios[2] <= 1.0f) ||
+					 (roiRatios[3] > 0.0f && roiRatios[3] <= 1.0f)))
 				{
 					cv::Rect roiDepth = util2d::computeRoi(depth, roiRatios);
 					cv::Rect roiRgb = util2d::computeRoi(rgb, roiRatios);
@@ -1068,7 +1087,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr RTABMAP_EXP cloudRGBFromSensorData(
 			}
 		}
 	}
-	else if(!sensorData.rightRaw().empty() && sensorData.stereoCameraModel().isValidForProjection())
+	else if(!sensorData.imageRaw().empty() && !sensorData.rightRaw().empty() && sensorData.stereoCameraModel().isValidForProjection())
 	{
 		//stereo
 		UDEBUG("");

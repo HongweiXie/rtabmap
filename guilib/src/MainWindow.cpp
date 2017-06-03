@@ -163,6 +163,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_posteriorCurve(0),
 	_likelihoodCurve(0),
 	_rawLikelihoodCurve(0),
+	_exportPosesFrame(0),
 	_autoScreenCaptureOdomSync(false),
 	_autoScreenCaptureRAM(false),
 	_firstCall(true),
@@ -418,7 +419,8 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	connect(_ui->actionOpenNI2_kinect, SIGNAL(triggered()), this, SLOT(selectOpenni2()));
 	connect(_ui->actionOpenNI2_sense, SIGNAL(triggered()), this, SLOT(selectOpenni2()));
 	connect(_ui->actionFreenect2, SIGNAL(triggered()), this, SLOT(selectFreenect2()));
-	connect(_ui->actionRealSense, SIGNAL(triggered()), this, SLOT(selectRealSense()));
+	connect(_ui->actionRealSense_R200, SIGNAL(triggered()), this, SLOT(selectRealSense()));
+	connect(_ui->actionRealSense_ZR300, SIGNAL(triggered()), this, SLOT(selectRealSense()));
 	connect(_ui->actionStereoDC1394, SIGNAL(triggered()), this, SLOT(selectStereoDC1394()));
 	connect(_ui->actionStereoFlyCapture2, SIGNAL(triggered()), this, SLOT(selectStereoFlyCapture2()));
 	connect(_ui->actionStereoZed, SIGNAL(triggered()), this, SLOT(selectStereoZed()));
@@ -430,7 +432,8 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_ui->actionOpenNI2_kinect->setEnabled(CameraOpenNI2::available());
 	_ui->actionOpenNI2_sense->setEnabled(CameraOpenNI2::available());
 	_ui->actionFreenect2->setEnabled(CameraFreenect2::available());
-	_ui->actionRealSense->setEnabled(CameraRealSense::available());
+	_ui->actionRealSense_R200->setEnabled(CameraRealSense::available());
+	_ui->actionRealSense_ZR300->setEnabled(CameraRealSense::available());
 	_ui->actionStereoDC1394->setEnabled(CameraStereoDC1394::available());
 	_ui->actionStereoFlyCapture2->setEnabled(CameraStereoFlyCapture2::available());
 	_ui->actionStereoZed->setEnabled(CameraStereoZed::available());
@@ -1713,7 +1716,7 @@ void MainWindow::processStats(const rtabmap::Statistics & stat)
 			Transform groundTruthOffset = alignPosesToGroundTruth(poses, groundTruth, stat.stamp(), stat.refImageId());
 			UDEBUG("time= %d ms", time.restart());
 
-			if(!_odometryReceived && poses.size())
+			if(!_odometryReceived && poses.size() && poses.rbegin()->first == stat.refImageId())
 			{
 				_cloudViewer->updateCameraTargetPosition(poses.rbegin()->second);
 
@@ -2384,7 +2387,10 @@ void MainWindow::updateMapCloud(
 		else
 #endif
 		{
-			_occupancyGrid->update(poses);
+			if(_occupancyGrid->addedNodes().size() || _occupancyGrid->cacheSize()>0)
+			{
+				_occupancyGrid->update(poses);
+			}
 			if(stats)
 			{
 				stats->insert(std::make_pair("GUI/Grid Update/ms", (float)timer.restart()*1000.0f));
@@ -2503,7 +2509,6 @@ void MainWindow::updateMapCloud(
 
 std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> MainWindow::createAndAddCloudToMap(int nodeId, const Transform & pose, int mapId)
 {
-	UDEBUG("");
 	UASSERT(!pose.isNull());
 	std::string cloudName = uFormat("cloud%d", nodeId);
 	std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> outputPair;
@@ -2822,7 +2827,6 @@ std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> MainWindow::c
 		}
 	}
 
-	UDEBUG("");
 	return outputPair;
 }
 
@@ -2860,6 +2864,24 @@ void MainWindow::createAndAddScanToMap(int nodeId, const Transform & pose, int m
 			{
 				cloud = util3d::voxelize(cloud, _preferencesDialog->getCloudVoxelSizeScan(0));
 			}
+
+			// Do ceiling/floor filtering
+			if(cloud->size() &&
+			   (_preferencesDialog->getScanFloorFilteringHeight() != 0.0 ||
+			   _preferencesDialog->getScanCeilingFilteringHeight() != 0.0))
+			{
+				// perform in /map frame
+				pcl::PointCloud<pcl::PointNormal>::Ptr cloudTransformed = util3d::transformPointCloud(cloud, pose);
+				cloudTransformed = rtabmap::util3d::passThrough(
+						cloudTransformed,
+						"z",
+						_preferencesDialog->getScanFloorFilteringHeight()==0.0?(float)std::numeric_limits<int>::min():_preferencesDialog->getScanFloorFilteringHeight(),
+						_preferencesDialog->getScanCeilingFilteringHeight()==0.0?(float)std::numeric_limits<int>::max():_preferencesDialog->getScanCeilingFilteringHeight());
+
+				//transform back in sensor frame
+				cloud = util3d::transformPointCloud(cloudTransformed, pose.inverse());
+			}
+
 			QColor color = Qt::gray;
 			if(mapId >= 0)
 			{
@@ -2892,37 +2914,92 @@ void MainWindow::createAndAddScanToMap(int nodeId, const Transform & pose, int m
 		{
 			pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
 			cloud = util3d::laserScanToPointCloud(scan, iter->sensorData().laserScanInfo().localTransform());
+			bool filtered = false;
 			if(_preferencesDialog->getCloudVoxelSizeScan(0) > 0.0)
 			{
 				cloud = util3d::voxelize(cloud, _preferencesDialog->getCloudVoxelSizeScan(0));
+				filtered = true;
 			}
+
+			// Do ceiling/floor filtering
+			if(scan.channels() > 2 && // don't filter 2D scans
+				cloud->size() &&
+			   (_preferencesDialog->getScanFloorFilteringHeight() != 0.0 ||
+			   _preferencesDialog->getScanCeilingFilteringHeight() != 0.0))
+			{
+				// perform in /map frame
+				pcl::PointCloud<pcl::PointXYZ>::Ptr cloudTransformed = util3d::transformPointCloud(cloud, pose);
+				cloudTransformed = rtabmap::util3d::passThrough(
+						cloudTransformed,
+						"z",
+						_preferencesDialog->getScanFloorFilteringHeight()==0.0?(float)std::numeric_limits<int>::min():_preferencesDialog->getScanFloorFilteringHeight(),
+						_preferencesDialog->getScanCeilingFilteringHeight()==0.0?(float)std::numeric_limits<int>::max():_preferencesDialog->getScanCeilingFilteringHeight());
+
+				//transform back in sensor frame
+				cloud = util3d::transformPointCloud(cloudTransformed, pose.inverse());
+				filtered = true;
+			}
+
+			pcl::PointCloud<pcl::PointNormal>::Ptr cloudWithNormals;
+			if(scan.channels() > 2 && // don't compute normals for 2D scans
+				cloud->size() &&
+			   _preferencesDialog->getScanNormalKSearch() > 0)
+			{
+				pcl::PointCloud<pcl::Normal>::Ptr normals = util3d::computeNormals(cloud, _preferencesDialog->getScanNormalKSearch());
+				cloudWithNormals.reset(new pcl::PointCloud<pcl::PointNormal>);
+				pcl::concatenateFields(*cloud, *normals, *cloudWithNormals);
+				filtered = true;
+			}
+
 			QColor color = Qt::gray;
 			if(mapId >= 0)
 			{
 				color = (Qt::GlobalColor)(mapId+3 % 12 + 7 );
 			}
-			if(!_cloudViewer->addCloud(scanName, cloud, pose, color))
+			if(cloudWithNormals.get())
 			{
-				UERROR("Adding cloud %d to viewer failed!", nodeId);
+				if(!_cloudViewer->addCloud(scanName, cloudWithNormals, pose, color))
+				{
+					UERROR("Adding cloud %d to viewer failed!", nodeId);
+				}
+				else
+				{
+					if(nodeId > 0)
+					{
+						//reconvert the voxelized cloud
+						scan = util3d::laserScanFromPointCloud(*cloudWithNormals);
+						_createdScans.insert(std::make_pair(nodeId, scan)); // keep scan in base_link frame
+					}
+
+					_cloudViewer->setCloudOpacity(scanName, _preferencesDialog->getScanOpacity(0));
+					_cloudViewer->setCloudPointSize(scanName, _preferencesDialog->getScanPointSize(0));
+				}
 			}
 			else
 			{
-				if(nodeId > 0)
+				if(!_cloudViewer->addCloud(scanName, cloud, pose, color))
 				{
-					if(_preferencesDialog->getCloudVoxelSizeScan(0) > 0.0)
-					{
-						//reconvert the voxelized cloud
-						scan = util3d::laserScanFromPointCloud(*cloud);
-					}
-					else
-					{
-						scan = util3d::transformLaserScan(scan, iter->sensorData().laserScanInfo().localTransform());
-					}
-					_createdScans.insert(std::make_pair(nodeId, scan)); // keep scan in base_link frame
+					UERROR("Adding cloud %d to viewer failed!", nodeId);
 				}
+				else
+				{
+					if(nodeId > 0)
+					{
+						if(filtered)
+						{
+							//reconvert the voxelized cloud
+							scan = util3d::laserScanFromPointCloud(*cloud);
+						}
+						else
+						{
+							scan = util3d::transformLaserScan(scan, iter->sensorData().laserScanInfo().localTransform());
+						}
+						_createdScans.insert(std::make_pair(nodeId, scan)); // keep scan in base_link frame
+					}
 
-				_cloudViewer->setCloudOpacity(scanName, _preferencesDialog->getScanOpacity(0));
-				_cloudViewer->setCloudPointSize(scanName, _preferencesDialog->getScanPointSize(0));
+					_cloudViewer->setCloudOpacity(scanName, _preferencesDialog->getScanOpacity(0));
+					_cloudViewer->setCloudPointSize(scanName, _preferencesDialog->getScanPointSize(0));
+				}
 			}
 		}
 	}
@@ -3198,45 +3275,44 @@ Transform MainWindow::alignPosesToGroundTruth(
 
 void MainWindow::updateNodeVisibility(int nodeId, bool visible)
 {
-	if(_currentPosesMap.find(nodeId) != _currentPosesMap.end())
+	UINFO("Update visibility %d", nodeId);
+	QMap<std::string, Transform> viewerClouds = _cloudViewer->getAddedClouds();
+	if(_preferencesDialog->isCloudsShown(0))
 	{
-		QMap<std::string, Transform> viewerClouds = _cloudViewer->getAddedClouds();
-		if(_preferencesDialog->isCloudsShown(0))
+		std::string cloudName = uFormat("cloud%d", nodeId);
+		if(visible && !viewerClouds.contains(cloudName) && _cachedSignatures.contains(nodeId) && _currentPosesMap.find(nodeId) != _currentPosesMap.end())
 		{
-			std::string cloudName = uFormat("cloud%d", nodeId);
-			if(visible && !viewerClouds.contains(cloudName) && _cachedSignatures.contains(nodeId))
-			{
-				createAndAddCloudToMap(nodeId, _currentPosesMap.find(nodeId)->second, uValue(_currentMapIds, nodeId, -1));
-			}
-			else if(viewerClouds.contains(cloudName))
-			{
-				if(visible)
-				{
-					//make sure the transformation was done
-					_cloudViewer->updateCloudPose(cloudName, _currentPosesMap.find(nodeId)->second);
-				}
-				_cloudViewer->setCloudVisibility(cloudName, visible);
-			}
+			createAndAddCloudToMap(nodeId, _currentPosesMap.find(nodeId)->second, uValue(_currentMapIds, nodeId, -1));
 		}
-
-		if(_preferencesDialog->isScansShown(0))
+		else if(viewerClouds.contains(cloudName))
 		{
-			std::string scanName = uFormat("scan%d", nodeId);
-			if(visible && !viewerClouds.contains(scanName) && _cachedSignatures.contains(nodeId))
+			if(visible && _currentPosesMap.find(nodeId) != _currentPosesMap.end())
 			{
-				createAndAddScanToMap(nodeId, _currentPosesMap.find(nodeId)->second, uValue(_currentMapIds, nodeId, -1));
+				//make sure the transformation was done
+				_cloudViewer->updateCloudPose(cloudName, _currentPosesMap.find(nodeId)->second);
 			}
-			else if(viewerClouds.contains(scanName))
-			{
-				if(visible)
-				{
-					//make sure the transformation was done
-					_cloudViewer->updateCloudPose(scanName, _currentPosesMap.find(nodeId)->second);
-				}
-				_cloudViewer->setCloudVisibility(scanName, visible);
-			}
+			_cloudViewer->setCloudVisibility(cloudName, visible);
 		}
 	}
+
+	if(_preferencesDialog->isScansShown(0))
+	{
+		std::string scanName = uFormat("scan%d", nodeId);
+		if(visible && !viewerClouds.contains(scanName) && _cachedSignatures.contains(nodeId) && _currentPosesMap.find(nodeId) != _currentPosesMap.end())
+		{
+			createAndAddScanToMap(nodeId, _currentPosesMap.find(nodeId)->second, uValue(_currentMapIds, nodeId, -1));
+		}
+		else if(viewerClouds.contains(scanName))
+		{
+			if(visible && _currentPosesMap.find(nodeId) != _currentPosesMap.end())
+			{
+				//make sure the transformation was done
+				_cloudViewer->updateCloudPose(scanName, _currentPosesMap.find(nodeId)->second);
+			}
+			_cloudViewer->setCloudVisibility(scanName, visible);
+		}
+	}
+
 	_cloudViewer->update();
 }
 
@@ -3865,6 +3941,15 @@ void MainWindow::resizeEvent(QResizeEvent* anEvent)
 	}
 }
 
+void MainWindow::keyPressEvent(QKeyEvent *event)
+{
+	//catch ctrl-s to save settings
+	if((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_S)
+	{
+		this->saveConfigGUI();
+	}
+}
+
 bool MainWindow::eventFilter(QObject *obj, QEvent *event)
 {
 	if (event->type() == QEvent::Resize && qobject_cast<QDockWidget*>(obj))
@@ -3900,7 +3985,8 @@ void MainWindow::updateSelectSourceMenu()
 	_ui->actionOpenNI2_kinect->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcOpenNI2);
 	_ui->actionOpenNI2_sense->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcOpenNI2);
 	_ui->actionFreenect2->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcFreenect2);
-	_ui->actionRealSense->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcRealSense);
+	_ui->actionRealSense_R200->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcRealSense);
+	_ui->actionRealSense_ZR300->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcRealSense);
 	_ui->actionStereoDC1394->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcDC1394);
 	_ui->actionStereoFlyCapture2->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcFlyCapture2);
 	_ui->actionStereoZed->setChecked(_preferencesDialog->getSourceDriver() == PreferencesDialog::kSrcStereoZed);
@@ -3996,7 +4082,13 @@ void MainWindow::updateParameters(const ParametersMap & parameters)
 			_ui->widget_console->appendMsg(msg);
 			UWARN(msg.toStdString().c_str());
 		}
-		_preferencesDialog->updateParameters(parameters);
+		QMessageBox::StandardButton button = QMessageBox::question(this,
+				tr("Parameters"),
+				tr("Some parameters have been set on command line, do you "
+					"want to set all other RTAB-Map's parameters to default?"),
+					QMessageBox::Yes | QMessageBox::No,
+					QMessageBox::No);
+		_preferencesDialog->updateParameters(parameters, button==QMessageBox::Yes);
 	}
 }
 
@@ -4397,7 +4489,7 @@ void MainWindow::startDetection()
 
 			int button = QMessageBox::question(this,
 					tr("Camera is not calibrated!"),
-					tr("RTAB-Map cannot run with an uncalibrated camera. Do you want to calibrate the camera now?"),
+					tr("RTAB-Map in metric SLAM mode cannot run with an uncalibrated camera. Do you want to calibrate the camera now?"),
 					 QMessageBox::Yes | QMessageBox::No);
 			if(button == QMessageBox::Yes)
 			{
@@ -4646,20 +4738,94 @@ void MainWindow::exportPoses(int format)
 {
 	if(_currentPosesMap.size())
 	{
+		std::map<int, Transform> poses;
+		QStringList items;
+		items.push_back("Robot");
+		items.push_back("Camera");
+		items.push_back("Scan");
+		QString item = QInputDialog::getItem(this, tr("Export Poses"), tr("Frame: "), items, _exportPosesFrame, false);
+		if(item.isEmpty())
+		{
+			return;
+		}
+		if(item.compare("Robot") != 0)
+		{
+			bool cameraFrame = item.compare("Camera") == 0;
+			_exportPosesFrame = cameraFrame?1:2;
+			for(std::map<int, Transform>::iterator iter=_currentPosesMap.begin(); iter!=_currentPosesMap.end(); ++iter)
+			{
+				if(_cachedSignatures.contains(iter->first))
+				{
+					Transform localTransform;
+					if(cameraFrame)
+					{
+						if((_cachedSignatures[iter->first].sensorData().cameraModels().size() == 1 &&
+							!_cachedSignatures[iter->first].sensorData().cameraModels().at(0).localTransform().isNull()))
+						{
+							localTransform = _cachedSignatures[iter->first].sensorData().cameraModels().at(0).localTransform();
+						}
+						else if(!_cachedSignatures[iter->first].sensorData().stereoCameraModel().localTransform().isNull())
+						{
+							localTransform = _cachedSignatures[iter->first].sensorData().stereoCameraModel().localTransform();
+						}
+						else if(_cachedSignatures[iter->first].sensorData().cameraModels().size()>1)
+						{
+							UWARN("Multi-camera is not supported (node %d)", iter->first);
+						}
+						else
+						{
+							UWARN("Missing calibration for node %d", iter->first);
+						}
+					}
+					else
+					{
+						if(!_cachedSignatures[iter->first].sensorData().laserScanInfo().localTransform().isNull())
+						{
+							localTransform = _cachedSignatures[iter->first].sensorData().laserScanInfo().localTransform();
+						}
+						else
+						{
+							UWARN("Missing scan info for node %d", iter->first);
+						}
+					}
+					if(!localTransform.isNull())
+					{
+						poses.insert(std::make_pair(iter->first, iter->second * localTransform));
+					}
+				}
+				else
+				{
+					UWARN("Did not find node %d in cache", iter->first);
+				}
+			}
+			if(poses.empty())
+			{
+				QMessageBox::warning(this,
+						tr("Export Poses"),
+						tr("Could not find any \"%1\" frame, exporting in Robot frame instead.").arg(item));
+				poses = _currentPosesMap;
+			}
+		}
+		else
+		{
+			_exportPosesFrame = 0;
+			poses = _currentPosesMap;
+		}
+
 		std::map<int, double> stamps;
 		if(format == 1)
 		{
-			for(std::map<int, Transform>::iterator iter=_currentPosesMap.begin(); iter!=_currentPosesMap.end(); ++iter)
+			for(std::map<int, Transform>::iterator iter=poses.begin(); iter!=poses.end(); ++iter)
 			{
 				if(_cachedSignatures.contains(iter->first))
 				{
 					stamps.insert(std::make_pair(iter->first, _cachedSignatures.value(iter->first).getStamp()));
 				}
 			}
-			if(stamps.size()!=_currentPosesMap.size())
+			if(stamps.size()!=poses.size())
 			{
 				QMessageBox::warning(this, tr("Export poses..."), tr("RGB-D SLAM format: Poses (%1) and stamps (%2) have not the same size! Try again after updating the cache.")
-						.arg(_currentPosesMap.size()).arg(stamps.size()));
+						.arg(poses.size()).arg(stamps.size()));
 				return;
 			}
 		}
@@ -4679,7 +4845,24 @@ void MainWindow::exportPoses(int format)
 		{
 			_exportPosesFileName[format] = path;
 
-			bool saved = graph::exportPoses(path.toStdString(), format, _currentPosesMap, _currentLinksMap, stamps);
+			std::multimap<int, Link> links;
+			if(poses.size() != _currentPosesMap.size())
+			{
+				for(std::multimap<int, Link>::iterator iter=_currentLinksMap.begin(); iter!=_currentLinksMap.end(); ++iter)
+				{
+					if(uContains(poses, iter->second.from()) && uContains(poses, iter->second.to()))
+					{
+						links.insert(*iter);
+					}
+				}
+			}
+			else
+			{
+				links = _currentLinksMap;
+			}
+
+
+			bool saved = graph::exportPoses(path.toStdString(), format, poses, links, stamps);
 
 			if(saved)
 			{
@@ -5908,8 +6091,6 @@ void MainWindow::exportGridMap()
 	{
 		return;
 	}
-
-	std::map<int, Transform> poses = _ui->widget_mapVisibility->getVisiblePoses();
 
 	// create the map
 	float xMin=0.0f, yMin=0.0f;

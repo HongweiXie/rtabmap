@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1392</width>
+    <width>1547</width>
     <height>965</height>
    </rect>
   </property>
@@ -52,8 +52,8 @@
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>339</width>
-           <height>208</height>
+           <width>381</width>
+           <height>196</height>
           </rect>
          </property>
          <layout class="QGridLayout" name="gridLayout" columnstretch="0,1">
@@ -210,8 +210,8 @@
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>339</width>
-           <height>208</height>
+           <width>381</width>
+           <height>196</height>
           </rect>
          </property>
          <layout class="QGridLayout" name="gridLayout_2" columnstretch="0,1">
@@ -483,8 +483,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1392</width>
-     <height>22</height>
+     <width>1547</width>
+     <height>25</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -521,6 +521,7 @@
     <addaction name="actionEdit_depth_image"/>
     <addaction name="separator"/>
     <addaction name="actionReset_all_changes"/>
+    <addaction name="actionRestore_default_GUI_settings"/>
     <addaction name="separator"/>
     <addaction name="actionView_3D_map"/>
     <addaction name="actionView_3D_laser_scans"/>
@@ -529,6 +530,7 @@
     <property name="title">
      <string>View</string>
     </property>
+    <addaction name="actionVertical_Layout"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
@@ -914,6 +916,26 @@
          </property>
         </widget>
        </item>
+       <item row="1" column="1">
+        <widget class="QLabel" name="label_alignPosesWithGroundTruth">
+         <property name="text">
+          <string>Align poses with ground truth</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QCheckBox" name="checkBox_alignPosesWithGroundTruth">
+         <property name="text">
+          <string/>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
       </layout>
      </item>
     </layout>
@@ -934,23 +956,12 @@
    </attribute>
    <widget class="QWidget" name="dockWidgetContents_3">
     <layout class="QVBoxLayout" name="verticalLayout_10">
+     <property name="margin">
+      <number>0</number>
+     </property>
      <item>
-      <layout class="QGridLayout" name="gridLayout_4">
-       <item row="1" column="2">
-        <widget class="QLabel" name="label_logger_level_2">
-         <property name="text">
-          <string>Vertical layout</string>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="2">
-        <widget class="QLabel" name="label_logger_level">
-         <property name="text">
-          <string>Logger level</string>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="1">
+      <layout class="QGridLayout" name="gridLayout_4" columnstretch="0,1">
+       <item row="0" column="0">
         <widget class="QComboBox" name="comboBox_logger_level">
          <property name="currentIndex">
           <number>1</number>
@@ -977,10 +988,13 @@
          </item>
         </widget>
        </item>
-       <item row="1" column="1">
-        <widget class="QCheckBox" name="checkBox_verticalLayout">
+       <item row="0" column="1">
+        <widget class="QLabel" name="label_logger_level">
          <property name="text">
-          <string/>
+          <string>Logger level</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
          </property>
         </widget>
        </item>
@@ -989,15 +1003,15 @@
      <item>
       <widget class="QToolBox" name="toolBox">
        <property name="currentIndex">
-        <number>2</number>
+        <number>0</number>
        </property>
        <widget class="QWidget" name="page_3">
         <property name="geometry">
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>324</width>
-          <height>207</height>
+          <width>339</width>
+          <height>186</height>
          </rect>
         </property>
         <attribute name="label">
@@ -1132,8 +1146,8 @@
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>280</width>
-          <height>608</height>
+          <width>326</width>
+          <height>609</height>
          </rect>
         </property>
         <attribute name="label">
@@ -1169,7 +1183,7 @@
               <number>3</number>
              </property>
              <property name="minimum">
-              <double>0.010000000000000</double>
+              <double>0.001000000000000</double>
              </property>
              <property name="singleStep">
               <double>0.010000000000000</double>
@@ -1219,6 +1233,38 @@
             <widget class="QCheckBox" name="checkBox_octomap">
              <property name="text">
               <string/>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QLabel" name="label_54">
+             <property name="text">
+              <string>Voxel size (for clouds and scans)</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="0">
+            <widget class="QDoubleSpinBox" name="doubleSpinBox_voxelSize">
+             <property name="suffix">
+              <string> m</string>
+             </property>
+             <property name="decimals">
+              <number>3</number>
+             </property>
+             <property name="minimum">
+              <double>0.000000000000000</double>
+             </property>
+             <property name="maximum">
+              <double>99.000000000000000</double>
+             </property>
+             <property name="singleStep">
+              <double>0.010000000000000</double>
+             </property>
+             <property name="value">
+              <double>0.000000000000000</double>
              </property>
             </widget>
            </item>
@@ -1463,8 +1509,8 @@
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>283</width>
-          <height>222</height>
+          <width>339</width>
+          <height>173</height>
          </rect>
         </property>
         <attribute name="label">
@@ -1563,8 +1609,8 @@
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>268</width>
-          <height>304</height>
+          <width>326</width>
+          <height>249</height>
          </rect>
         </property>
         <attribute name="label">
@@ -1792,6 +1838,16 @@
      <item>
       <layout class="QHBoxLayout" name="horizontalLayout_3">
        <item>
+        <widget class="QCheckBox" name="checkBox_showWords">
+         <property name="text">
+          <string>Words</string>
+         </property>
+         <property name="checked">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QCheckBox" name="checkBox_showCloud">
          <property name="text">
           <string>Cloud</string>
@@ -1921,6 +1977,30 @@
      <property name="margin">
       <number>0</number>
      </property>
+     <item>
+      <layout class="QGridLayout" name="gridLayout_8" columnstretch="0,1">
+       <item row="0" column="0">
+        <widget class="QCheckBox" name="checkBox_timeStats">
+         <property name="text">
+          <string/>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QLabel" name="label_logger_level_3">
+         <property name="text">
+          <string>Time (s) used in figures for x-axis instead of node IDs.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
      <item>
       <widget class="rtabmap::StatsToolBox" name="toolBox_statistics" native="true"/>
      </item>
@@ -2108,7 +2188,7 @@
   </action>
   <action name="actionReset_all_changes">
    <property name="text">
-    <string>Reset all changes</string>
+    <string>Reset link and grid map changes</string>
    </property>
   </action>
   <action name="actionGenerate_g2o_graph_g2o">
@@ -2139,6 +2219,22 @@
   <action name="actionEdit_depth_image">
    <property name="text">
     <string>Edit depth image...</string>
+   </property>
+  </action>
+  <action name="actionVertical_Layout">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Vertical Layout</string>
+   </property>
+  </action>
+  <action name="actionRestore_default_GUI_settings">
+   <property name="text">
+    <string>Restore default GUI settings</string>
    </property>
   </action>
  </widget>

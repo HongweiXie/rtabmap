@@ -118,6 +118,7 @@ protected:
 	virtual void showEvent(QShowEvent* anEvent);
 	virtual void moveEvent(QMoveEvent* anEvent);
 	virtual void resizeEvent(QResizeEvent* anEvent);
+	virtual void keyPressEvent(QKeyEvent *event);
 	virtual bool eventFilter(QObject *obj, QEvent *event);
 
 private slots:
@@ -325,6 +326,7 @@ private:
 	LoopClosureViewer * _loopClosureViewer;
 
 	QString _graphSavingFileName;
+	bool _exportPosesFrame;
 	QMap<int, QString> _exportPosesFileName;
 	bool _autoScreenCaptureOdomSync;
 	bool _autoScreenCaptureRAM;

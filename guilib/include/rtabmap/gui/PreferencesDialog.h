@@ -131,7 +131,7 @@ public:
 
 	rtabmap::ParametersMap getAllParameters() const;
 	std::string getParameter(const std::string & key) const;
-	void updateParameters(const ParametersMap & parameters);
+	void updateParameters(const ParametersMap & parameters, bool setOtherParametersToDefault = false);
 
 	//General panel
 	int getGeneralLoggerLevel() const;
@@ -163,6 +163,9 @@ public:
 	double getCeilingFilteringHeight() const;
 	double getFloorFilteringHeight() const;
 	int getNormalKSearch() const;
+	double getScanCeilingFilteringHeight() const;
+	double getScanFloorFilteringHeight() const;
+	int getScanNormalKSearch() const;
 	bool isCloudsShown(int index) const;      // 0=map, 1=odom
 	bool isOctomapUpdated() const;
 	bool isOctomapShown() const;
