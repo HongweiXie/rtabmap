@@ -1,3 +1,9 @@
+app/.gradle/
+app/.idea/
+app/android/android.iml
+app/android/libs/armeabi-v7a/
+app/app.iml
+guilib/src/ui/mainWindow.ui.autosave
 /lib
 .DS_Store
 .settings/language.settings.xml
