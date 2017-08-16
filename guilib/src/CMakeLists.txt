@@ -22,7 +22,7 @@ SET(headers_ui
 	./ExportDialog.h
 	./PostProcessingDialog.h
 	./ExportCloudsDialog.h
-	./ExportScansDialog.h
+	./ExportBundlerDialog.h
 	./MapVisibilityWidget.h
 	../include/${PROJECT_PREFIX}/gui/GraphViewer.h
 	./CreateSimpleCalibrationDialog.h
@@ -43,10 +43,10 @@ SET(uis
     ./ui/exportDialog.ui
     ./ui/postProcessingDialog.ui
     ./ui/exportCloudsDialog.ui
-    ./ui/exportScansDialog.ui
     ./ui/calibrationDialog.ui
     ./ui/createSimpleCalibrationDialog.ui
     ./ui/depthCalibrationDialog.ui
+    ./ui/exportBundlerDialog.ui
 )
 
 SET(qrc 
@@ -89,9 +89,9 @@ SET(SRC_FILES
 	./CameraViewer.cpp
 	./CalibrationDialog.cpp
 	./ExportDialog.cpp
+	./ExportBundlerDialog.cpp
 	./PostProcessingDialog.cpp
 	./ExportCloudsDialog.cpp
-	./ExportScansDialog.cpp
 	./MapVisibilityWidget.cpp
 	./GraphViewer.cpp
 	./EditDepthArea.cpp
@@ -164,7 +164,11 @@ ADD_LIBRARY(rtabmap_gui ${SRC_FILES})
 
 TARGET_LINK_LIBRARIES(rtabmap_gui rtabmap_core rtabmap_utilite ${LIBRARIES})
 IF(Qt5_FOUND)
-    QT5_USE_MODULES(rtabmap_gui Widgets Core Gui Svg PrintSupport)
+    IF(Qt5Svg_FOUND)
+        QT5_USE_MODULES(rtabmap_gui Widgets Core Gui Svg PrintSupport)
+    ELSE()
+        QT5_USE_MODULES(rtabmap_gui Widgets Core Gui PrintSupport)
+    ENDIF()
 ENDIF(Qt5_FOUND)
 
 SET_TARGET_PROPERTIES(

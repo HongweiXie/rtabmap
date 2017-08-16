@@ -98,26 +98,6 @@ void OccupancyGrid::parseParameters(const ParametersMap & parameters)
 	Parameters::parse(parameters, Parameters::kGridMaxObstacleHeight(), maxObstacleHeight_);
 	Parameters::parse(parameters, Parameters::kGridMinGroundHeight(), minGroundHeight_);
 	Parameters::parse(parameters, Parameters::kGridMaxGroundHeight(), maxGroundHeight_);
-	if(maxGroundHeight_ > 0 &&
-		maxObstacleHeight_ > 0 &&
-		maxObstacleHeight_ < maxGroundHeight_)
-	{
-		UWARN("\"%s\" should be lower than \"%s\", setting \"%s\" to 0 (disabled).",
-				Parameters::kGridMaxGroundHeight().c_str(),
-				Parameters::kGridMaxObstacleHeight().c_str(),
-				Parameters::kGridMaxObstacleHeight().c_str());
-		maxObstacleHeight_ = 0;
-	}
-	if(maxGroundHeight_ > 0 &&
-			minGroundHeight_ > 0 &&
-		maxGroundHeight_ < minGroundHeight_)
-	{
-		UWARN("\"%s\" should be lower than \"%s\", setting \"%s\" to 0 (disabled).",
-				Parameters::kGridMinGroundHeight().c_str(),
-				Parameters::kGridMaxGroundHeight().c_str(),
-				Parameters::kGridMinGroundHeight().c_str());
-		minGroundHeight_ = 0;
-	}
 	Parameters::parse(parameters, Parameters::kGridNormalK(), normalKSearch_);
 	if(Parameters::parse(parameters, Parameters::kGridMaxGroundAngle(), maxGroundAngle_))
 	{
@@ -175,12 +155,32 @@ void OccupancyGrid::parseParameters(const ParametersMap & parameters)
 		}
 	}
 
-	if(maxGroundHeight_ <= 0.0f && !normalsSegmentation_)
+	if(maxGroundHeight_ == 0.0f && !normalsSegmentation_)
 	{
-		UWARN("\"%s\" should be greater than 0 if not using normals "
+		UWARN("\"%s\" should be not equal to 0 if not using normals "
 				"segmentation approach. Setting it to cell size (%f).",
 				Parameters::kGridMaxGroundHeight().c_str(), cellSize_);
 		maxGroundHeight_ = cellSize_;
+	}
+	if(maxGroundHeight_ != 0.0f &&
+		maxObstacleHeight_ != 0.0f &&
+		maxObstacleHeight_ < maxGroundHeight_)
+	{
+		UWARN("\"%s\" should be lower than \"%s\", setting \"%s\" to 0 (disabled).",
+				Parameters::kGridMaxGroundHeight().c_str(),
+				Parameters::kGridMaxObstacleHeight().c_str(),
+				Parameters::kGridMaxObstacleHeight().c_str());
+		maxObstacleHeight_ = 0;
+	}
+	if(maxGroundHeight_ != 0.0f &&
+		minGroundHeight_ != 0.0f &&
+		maxGroundHeight_ < minGroundHeight_)
+	{
+		UWARN("\"%s\" should be lower than \"%s\", setting \"%s\" to 0 (disabled).",
+				Parameters::kGridMinGroundHeight().c_str(),
+				Parameters::kGridMaxGroundHeight().c_str(),
+				Parameters::kGridMinGroundHeight().c_str());
+		minGroundHeight_ = 0;
 	}
 }
 
@@ -299,7 +299,8 @@ void OccupancyGrid::createLocalMap(
 			viewPoint.z = viewpointRotated.z();
 		}
 
-		if(cloud->size())
+		if((cloud->is_dense && cloud->size()) ||
+			(!cloud->is_dense && indices->size()))
 		{
 			pcl::IndicesPtr groundIndices(new std::vector<int>);
 			pcl::IndicesPtr obstaclesIndices(new std::vector<int>);

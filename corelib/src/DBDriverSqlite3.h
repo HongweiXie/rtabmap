@@ -53,11 +53,17 @@ private:
 	virtual bool isConnectedQuery() const;
 	virtual long getMemoryUsedQuery() const; // In bytes
 	virtual bool getDatabaseVersionQuery(std::string & version) const;
+	virtual long getNodesMemoryUsedQuery() const;
+	virtual long getLinksMemoryUsedQuery() const;
 	virtual long getImagesMemoryUsedQuery() const;
 	virtual long getDepthImagesMemoryUsedQuery() const;
+	virtual long getCalibrationsMemoryUsedQuery() const;
+	virtual long getGridsMemoryUsedQuery() const;
 	virtual long getLaserScansMemoryUsedQuery() const;
 	virtual long getUserDataMemoryUsedQuery() const;
 	virtual long getWordsMemoryUsedQuery() const;
+	virtual long getFeaturesMemoryUsedQuery() const;
+	virtual long getStatisticsMemoryUsedQuery() const;
 	virtual int getLastNodesSizeQuery() const;
 	virtual int getLastDictionarySizeQuery() const;
 	virtual int getTotalNodesSizeQuery() const;
@@ -85,10 +91,31 @@ private:
 			const cv::Point3f & viewpoint) const;
 
 	virtual void updateDepthImageQuery(
-				int nodeId,
-				const cv::Mat & image) const;
+			int nodeId,
+			const cv::Mat & image) const;
 
 	virtual void addStatisticsQuery(const Statistics & statistics) const;
+	virtual void savePreviewImageQuery(const cv::Mat & image) const;
+	virtual cv::Mat loadPreviewImageQuery() const;
+	virtual void saveOptimizedMeshQuery(
+			const cv::Mat & cloud,
+			const std::map<int, Transform> & poses,
+			const std::vector<std::vector<std::vector<unsigned int> > > & polygons,
+#if PCL_VERSION_COMPARE(>=, 1, 8, 0)
+			const std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > & texCoords,
+#else
+			const std::vector<std::vector<Eigen::Vector2f> > & texCoords,
+#endif
+			const cv::Mat & textures) const;
+	virtual cv::Mat loadOptimizedMeshQuery(
+			std::map<int, Transform> * poses,
+			std::vector<std::vector<std::vector<unsigned int> > > * polygons,
+#if PCL_VERSION_COMPARE(>=, 1, 8, 0)
+			std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > * texCoords,
+#else
+			std::vector<std::vector<Eigen::Vector2f> > * texCoords,
+#endif
+			cv::Mat * textures) const;
 
 	// Load objects
 	virtual void loadQuery(VWDictionary * dictionary) const;
@@ -99,7 +126,8 @@ private:
 
 	virtual void loadNodeDataQuery(std::list<Signature *> & signatures, bool images=true, bool scan=true, bool userData=true, bool occupancyGrid=true) const;
 	virtual bool getCalibrationQuery(int signatureId, std::vector<CameraModel> & models, StereoCameraModel & stereoModel) const;
-	virtual bool getNodeInfoQuery(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose) const;
+	virtual bool getLaserScanInfoQuery(int signatureId, LaserScanInfo & info) const;
+	virtual bool getNodeInfoQuery(int signatureId, Transform & pose, int & mapId, int & weight, std::string & label, double & stamp, Transform & groundTruthPose, std::vector<float> & velocity) const;
 	virtual void getAllNodeIdsQuery(std::set<int> & ids, bool ignoreChildren, bool ignoreBadSignatures) const;
 	virtual void getAllLinksQuery(std::multimap<int, Link> & links, bool ignoreNullLinks) const;
 	virtual void getLastIdQuery(const std::string & tableName, int & id) const;

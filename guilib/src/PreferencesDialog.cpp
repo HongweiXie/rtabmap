@@ -69,7 +69,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/gui/ImageView.h"
 #include "rtabmap/gui/GraphViewer.h"
 #include "ExportCloudsDialog.h"
-#include "ExportScansDialog.h"
+#include "ExportBundlerDialog.h"
 #include "PostProcessingDialog.h"
 #include "CreateSimpleCalibrationDialog.h"
 #include "DepthCalibrationDialog.h"
@@ -160,6 +160,19 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->label_realsenseOdom->setEnabled(false);
 #endif
 
+#ifndef RTABMAP_FOVIS
+	_ui->odom_strategy->setItemData(2, 0, Qt::UserRole - 1);
+#endif
+#ifndef RTABMAP_VISO2
+	_ui->odom_strategy->setItemData(3, 0, Qt::UserRole - 1);
+#endif
+#ifndef RTABMAP_DVO
+	_ui->odom_strategy->setItemData(4, 0, Qt::UserRole - 1);
+#endif
+#ifndef RTABMAP_ORB_SLAM2
+	_ui->odom_strategy->setItemData(5, 0, Qt::UserRole - 1);
+#endif
+
 #ifndef RTABMAP_NONFREE
 		_ui->comboBox_detector_strategy->setItemData(0, 0, Qt::UserRole - 1);
 		_ui->comboBox_detector_strategy->setItemData(1, 0, Qt::UserRole - 1);
@@ -185,8 +198,8 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 #if CV_MAJOR_VERSION >= 3
 	_ui->groupBox_fast_opencv2->setEnabled(false);
 #else
-	_ui->comboBox_detector_strategy->setItemData(9, 0, Qt::UserRole - 1); // No FREAK (detector+descriptor version)
-	_ui->reextract_type->setItemData(9, 0, Qt::UserRole - 1); // No FREAK (detector+descriptor version)
+	_ui->comboBox_detector_strategy->setItemData(9, 0, Qt::UserRole - 1); // No KAZE
+	_ui->reextract_type->setItemData(9, 0, Qt::UserRole - 1); // No KAZE
 #endif
 
 	_ui->comboBox_cameraImages_odomFormat->setItemData(4, 0, Qt::UserRole - 1);
@@ -307,6 +320,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->checkBox_cacheStatistics, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteGeneralPanel()));
 	connect(_ui->checkBox_notifyWhenNewGlobalPathIsReceived, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteGeneralPanel()));
 	connect(_ui->spinBox_odomQualityWarnThr, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteGeneralPanel()));
+	connect(_ui->checkBox_odom_onlyInliersShown, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteGeneralPanel()));
 	connect(_ui->checkBox_posteriorGraphView, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteGeneralPanel()));
 	connect(_ui->checkbox_odomDisabled, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteGeneralPanel()));
 	connect(_ui->odom_registration, SIGNAL(currentIndexChanged(int)), this, SLOT(makeObsoleteGeneralPanel()));
@@ -529,13 +543,12 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->toolButton_cameraStereoImages_path_right, SIGNAL(clicked()), this, SLOT(selectSourceStereoImagesPathRight()));
 	connect(_ui->lineEdit_cameraStereoImages_path_left, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->lineEdit_cameraStereoImages_path_right, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
-	connect(_ui->checkBox_stereoImages_rectify, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
+	connect(_ui->checkBox_stereo_rectify, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 
 	connect(_ui->toolButton_cameraStereoVideo_path, SIGNAL(clicked()), this, SLOT(selectSourceStereoVideoPath()));
 	connect(_ui->toolButton_cameraStereoVideo_path_2, SIGNAL(clicked()), this, SLOT(selectSourceStereoVideoPath2()));
 	connect(_ui->lineEdit_cameraStereoVideo_path, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->lineEdit_cameraStereoVideo_path_2, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
-	connect(_ui->checkBox_stereoVideo_rectify, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 
 	connect(_ui->comboBox_stereoZed_resolution, SIGNAL(currentIndexChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->comboBox_stereoZed_quality, SIGNAL(currentIndexChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
@@ -613,6 +626,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	// Memory
 	_ui->general_checkBox_keepRawData->setObjectName(Parameters::kMemImageKept().c_str());
 	_ui->general_checkBox_keepBinaryData->setObjectName(Parameters::kMemBinDataKept().c_str());
+	_ui->general_checkBox_saveIntermediateNodeData->setObjectName(Parameters::kMemIntermediateNodeDataKept().c_str());
 	_ui->general_checkBox_keepDescriptors->setObjectName(Parameters::kMemRawDescriptorsKept().c_str());
 	_ui->general_checkBox_saveDepth16bits->setObjectName(Parameters::kMemSaveDepth16Format().c_str());
 	_ui->general_checkBox_compressionParallelized->setObjectName(Parameters::kMemCompressionParallelized().c_str());
@@ -733,8 +747,16 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->spinBox_BRISK_octaves->setObjectName(Parameters::kBRISKOctaves().c_str());
 	_ui->doubleSpinBox_BRISK_patterScale->setObjectName(Parameters::kBRISKPatternScale().c_str());
 
+	//KAZE
+	_ui->checkBox_kaze_extended->setObjectName(Parameters::kKAZEExtended().c_str());
+	_ui->checkBox_kaze_upright->setObjectName(Parameters::kKAZEUpright().c_str());
+	_ui->doubleSpinBox_kaze_threshold->setObjectName(Parameters::kKAZEThreshold().c_str());
+	_ui->spinBox_kaze_octaves->setObjectName(Parameters::kKAZENOctaves().c_str());
+	_ui->spinBox_kaze_octavelayers->setObjectName(Parameters::kKAZENOctaveLayers().c_str());
+	_ui->spinBox_kaze_diffusivity->setObjectName(Parameters::kKAZEDiffusivity().c_str());
+
 	// verifyHypotheses
-	_ui->comboBox_vh_strategy->setObjectName(Parameters::kRtabmapVhStrategy().c_str());
+	_ui->groupBox_vh_epipolar2->setObjectName(Parameters::kVhEpEnabled().c_str());
 	_ui->surf_spinBox_matchCountMinAccepted->setObjectName(Parameters::kVhEpMatchCountMin().c_str());
 	_ui->surf_doubleSpinBox_ransacParam1->setObjectName(Parameters::kVhEpRansacParam1().c_str());
 	_ui->surf_doubleSpinBox_ransacParam2->setObjectName(Parameters::kVhEpRansacParam2().c_str());
@@ -785,6 +807,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 
 	// Registration
 	_ui->loopClosure_bowVarianceFromInliersCount->setObjectName(Parameters::kRegVarianceFromInliersCount().c_str());
+	_ui->reg_varianceNormalized->setObjectName(Parameters::kRegVarianceNormalized().c_str());
 	_ui->comboBox_registrationStrategy->setObjectName(Parameters::kRegStrategy().c_str());
 	_ui->loopClosure_bowForce2D->setObjectName(Parameters::kRegForce3DoF().c_str());
 
@@ -871,6 +894,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	//Odometry
 	_ui->odom_strategy->setObjectName(Parameters::kOdomStrategy().c_str());
 	connect(_ui->odom_strategy, SIGNAL(currentIndexChanged(int)), _ui->stackedWidget_odometryType, SLOT(setCurrentIndex(int)));
+	connect(_ui->odom_strategy, SIGNAL(currentIndexChanged(int)), this, SLOT(updateOdometryVisibility()));
 	_ui->odom_strategy->setCurrentIndex(Parameters::defaultOdomStrategy());
 	_ui->odom_countdown->setObjectName(Parameters::kOdomResetCountdown().c_str());
 	_ui->odom_holonomic->setObjectName(Parameters::kOdomHolonomic().c_str());
@@ -910,6 +934,61 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	//Odometry Kalman filter
 	_ui->doubleSpinBox_kalmanProcessNoise->setObjectName(Parameters::kOdomKalmanProcessNoise().c_str());
 	_ui->doubleSpinBox_kalmanMeasurementNoise->setObjectName(Parameters::kOdomKalmanMeasurementNoise().c_str());
+
+	//Odometry Fovis
+	_ui->spinBox_OdomFovisFeatureWindowSize->setObjectName(Parameters::kOdomFovisFeatureWindowSize().c_str());
+	_ui->spinBox_OdomFovisMaxPyramidLevel->setObjectName(Parameters::kOdomFovisMaxPyramidLevel().c_str());
+	_ui->spinBox_OdomFovisMinPyramidLevel->setObjectName(Parameters::kOdomFovisMinPyramidLevel().c_str());
+	_ui->spinBox_OdomFovisTargetPixelsPerFeature->setObjectName(Parameters::kOdomFovisTargetPixelsPerFeature().c_str());
+	_ui->spinBox_OdomFovisFastThreshold->setObjectName(Parameters::kOdomFovisFastThreshold().c_str());
+	_ui->checkBox_OdomFovisUseAdaptiveThreshold->setObjectName(Parameters::kOdomFovisUseAdaptiveThreshold().c_str());
+	_ui->doubleSpinBox_OdomFovisFastThresholdAdaptiveGain->setObjectName(Parameters::kOdomFovisFastThresholdAdaptiveGain().c_str());
+	_ui->checkBox_OdomFovisUseHomographyInitialization->setObjectName(Parameters::kOdomFovisUseHomographyInitialization().c_str());
+
+	_ui->checkBox_OdomFovisUseBucketing->setObjectName(Parameters::kOdomFovisUseBucketing().c_str());
+	_ui->spinBox_OdomFovisBucketWidth->setObjectName(Parameters::kOdomFovisBucketWidth().c_str());
+	_ui->spinBox_OdomFovisBucketHeight->setObjectName(Parameters::kOdomFovisBucketHeight().c_str());
+	_ui->spinBox_OdomFovisMaxKeypointsPerBucket->setObjectName(Parameters::kOdomFovisMaxKeypointsPerBucket().c_str());
+	_ui->checkBox_OdomFovisUseImageNormalization->setObjectName(Parameters::kOdomFovisUseImageNormalization().c_str());
+
+	_ui->doubleSpinBox_OdomFovisInlierMaxReprojectionError->setObjectName(Parameters::kOdomFovisInlierMaxReprojectionError().c_str());
+	_ui->doubleSpinBox_OdomFovisCliqueInlierThreshold->setObjectName(Parameters::kOdomFovisCliqueInlierThreshold().c_str());
+	_ui->spinBox_OdomFovisMinFeaturesForEstimate->setObjectName(Parameters::kOdomFovisMinFeaturesForEstimate().c_str());
+	_ui->doubleSpinBox_OdomFovisMaxMeanReprojectionError->setObjectName(Parameters::kOdomFovisMaxMeanReprojectionError().c_str());
+	_ui->checkBox_OdomFovisUseSubpixelRefinement->setObjectName(Parameters::kOdomFovisUseSubpixelRefinement().c_str());
+	_ui->spinBox_OdomFovisFeatureSearchWindow->setObjectName(Parameters::kOdomFovisFeatureSearchWindow().c_str());
+	_ui->checkBox_OdomFovisUpdateTargetFeaturesWithRefined->setObjectName(Parameters::kOdomFovisUpdateTargetFeaturesWithRefined().c_str());
+
+	_ui->checkBox_OdomFovisStereoRequireMutualMatch->setObjectName(Parameters::kOdomFovisStereoRequireMutualMatch().c_str());
+	_ui->doubleSpinBox_OdomFovisStereoMaxDistEpipolarLine->setObjectName(Parameters::kOdomFovisStereoMaxDistEpipolarLine().c_str());
+	_ui->doubleSpinBox_OdomFovisStereoMaxRefinementDisplacement->setObjectName(Parameters::kOdomFovisStereoMaxRefinementDisplacement().c_str());
+	_ui->spinBox_OdomFovisStereoMaxDisparity->setObjectName(Parameters::kOdomFovisStereoMaxDisparity().c_str());
+
+	// Odometry viso2
+	_ui->spinBox_OdomViso2RansacIters->setObjectName(Parameters::kOdomViso2RansacIters().c_str());
+	_ui->doubleSpinBox_OdomViso2InlierThreshold->setObjectName(Parameters::kOdomViso2InlierThreshold().c_str());
+	_ui->checkBox_OdomViso2Reweighting->setObjectName(Parameters::kOdomViso2Reweighting().c_str());
+
+	_ui->spinBox_OdomViso2MatchNmsN->setObjectName(Parameters::kOdomViso2MatchNmsN().c_str());
+	_ui->spinBox_OdomViso2MatchNmsTau->setObjectName(Parameters::kOdomViso2MatchNmsTau().c_str());
+	_ui->spinBox_OdomViso2MatchBinsize->setObjectName(Parameters::kOdomViso2MatchBinsize().c_str());
+	_ui->spinBox_OdomViso2MatchRadius->setObjectName(Parameters::kOdomViso2MatchRadius().c_str());
+	_ui->spinBox_OdomViso2MatchDispTolerance->setObjectName(Parameters::kOdomViso2MatchDispTolerance().c_str());
+	_ui->spinBox_OdomViso2MatchOutlierDispTolerance->setObjectName(Parameters::kOdomViso2MatchOutlierDispTolerance().c_str());
+	_ui->spinBox_OdomViso2MatchOutlierFlowTolerance->setObjectName(Parameters::kOdomViso2MatchOutlierFlowTolerance().c_str());
+	_ui->checkBox_OdomViso2MatchMultiStage->setObjectName(Parameters::kOdomViso2MatchMultiStage().c_str());
+	_ui->checkBox_OdomViso2MatchHalfResolution->setObjectName(Parameters::kOdomViso2MatchHalfResolution().c_str());
+	_ui->spinBox_OdomViso2MatchRefinement->setObjectName(Parameters::kOdomViso2MatchRefinement().c_str());
+
+	_ui->spinBox_OdomViso2BucketMaxFeatures->setObjectName(Parameters::kOdomViso2BucketMaxFeatures().c_str());
+	_ui->doubleSpinBox_OdomViso2BucketWidth->setObjectName(Parameters::kOdomViso2BucketWidth().c_str());
+	_ui->doubleSpinBox_OdomViso2BucketHeight->setObjectName(Parameters::kOdomViso2BucketHeight().c_str());
+
+	// Odometry ORBSLAM2
+	_ui->lineEdit_OdomORBSLAM2VocPath->setObjectName(Parameters::kOdomORBSLAM2VocPath().c_str());
+	connect(_ui->toolButton_OdomORBSLAM2VocPath, SIGNAL(clicked()), this, SLOT(changeOdometryORBSLAM2Vocabulary()));
+	_ui->doubleSpinBox_OdomORBSLAM2Bf->setObjectName(Parameters::kOdomORBSLAM2Bf().c_str());
+	_ui->doubleSpinBox_OdomORBSLAM2ThDepth->setObjectName(Parameters::kOdomORBSLAM2ThDepth().c_str());
 
 	//Stereo
 	_ui->stereo_winWidth->setObjectName(Parameters::kStereoWinWidth().c_str());
@@ -1255,6 +1334,7 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 		_ui->checkBox_imageRejectedShown->setChecked(true);
 		_ui->checkBox_imageHighestHypShown->setChecked(false);
 		_ui->spinBox_odomQualityWarnThr->setValue(50);
+		_ui->checkBox_odom_onlyInliersShown->setChecked(false);
 		_ui->checkBox_posteriorGraphView->setChecked(true);
 		_ui->checkbox_odomDisabled->setChecked(false);
 		_ui->checkbox_groundTruthAlign->setChecked(true);
@@ -1425,10 +1505,9 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 		_ui->source_comboBox_image_type->setCurrentIndex(kSrcDC1394-kSrcDC1394);
 		_ui->lineEdit_cameraStereoImages_path_left->setText("");
 		_ui->lineEdit_cameraStereoImages_path_right->setText("");
-		_ui->checkBox_stereoImages_rectify->setChecked(false);
+		_ui->checkBox_stereo_rectify->setChecked(false);
 		_ui->lineEdit_cameraStereoVideo_path->setText("");
 		_ui->lineEdit_cameraStereoVideo_path_2->setText("");
-		_ui->checkBox_stereoVideo_rectify->setChecked(false);
 		_ui->comboBox_stereoZed_resolution->setCurrentIndex(2);
 		_ui->comboBox_stereoZed_quality->setCurrentIndex(1);
 		_ui->checkbox_stereoZed_selfCalibration->setChecked(false);
@@ -1533,6 +1612,7 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 		if(groupBox->objectName() == _ui->groupBox_odometry1->objectName())
 		{
 			_ui->odom_registration->setCurrentIndex(3);
+			updateOdometryVisibility();
 		}
 	}
 }
@@ -1651,6 +1731,7 @@ void PreferencesDialog::readGuiSettings(const QString & filePath)
 	_ui->checkBox_cacheStatistics->setChecked(settings.value("figure_cache", _ui->checkBox_cacheStatistics->isChecked()).toBool());
 	_ui->checkBox_notifyWhenNewGlobalPathIsReceived->setChecked(settings.value("notifyNewGlobalPath", _ui->checkBox_notifyWhenNewGlobalPathIsReceived->isChecked()).toBool());
 	_ui->spinBox_odomQualityWarnThr->setValue(settings.value("odomQualityThr", _ui->spinBox_odomQualityWarnThr->value()).toInt());
+	_ui->checkBox_odom_onlyInliersShown->setChecked(settings.value("odomOnlyInliersShown", _ui->checkBox_odom_onlyInliersShown->isChecked()).toBool());
 	_ui->checkBox_posteriorGraphView->setChecked(settings.value("posteriorGraphView", _ui->checkBox_posteriorGraphView->isChecked()).toBool());
 	_ui->checkbox_odomDisabled->setChecked(settings.value("odomDisabled", _ui->checkbox_odomDisabled->isChecked()).toBool());
 	_ui->odom_registration->setCurrentIndex(settings.value("odomRegistration", _ui->odom_registration->currentIndex()).toInt());
@@ -1795,13 +1876,12 @@ void PreferencesDialog::readCameraSettings(const QString & filePath)
 	settings.beginGroup("StereoImages");
 	_ui->lineEdit_cameraStereoImages_path_left->setText(settings.value("path_left", _ui->lineEdit_cameraStereoImages_path_left->text()).toString());
 	_ui->lineEdit_cameraStereoImages_path_right->setText(settings.value("path_right", _ui->lineEdit_cameraStereoImages_path_right->text()).toString());
-	_ui->checkBox_stereoImages_rectify->setChecked(settings.value("rectify",_ui->checkBox_stereoImages_rectify->isChecked()).toBool());
+	_ui->checkBox_stereo_rectify->setChecked(settings.value("rectify",_ui->checkBox_stereo_rectify->isChecked()).toBool());
 	settings.endGroup(); // StereoImages
 
 	settings.beginGroup("StereoVideo");
 	_ui->lineEdit_cameraStereoVideo_path->setText(settings.value("path", _ui->lineEdit_cameraStereoVideo_path->text()).toString());
 	_ui->lineEdit_cameraStereoVideo_path_2->setText(settings.value("path2", _ui->lineEdit_cameraStereoVideo_path_2->text()).toString());
-	_ui->checkBox_stereoVideo_rectify->setChecked(settings.value("rectify",_ui->checkBox_stereoVideo_rectify->isChecked()).toBool());
 	settings.endGroup(); // StereoVideo
 
 	settings.beginGroup("StereoZed");
@@ -2037,6 +2117,7 @@ void PreferencesDialog::writeGuiSettings(const QString & filePath) const
 	settings.setValue("figure_cache",         _ui->checkBox_cacheStatistics->isChecked());
 	settings.setValue("notifyNewGlobalPath",  _ui->checkBox_notifyWhenNewGlobalPathIsReceived->isChecked());
 	settings.setValue("odomQualityThr",       _ui->spinBox_odomQualityWarnThr->value());
+	settings.setValue("odomOnlyInliersShown", _ui->checkBox_odom_onlyInliersShown->isChecked());
 	settings.setValue("posteriorGraphView",   _ui->checkBox_posteriorGraphView->isChecked());
 	settings.setValue("odomDisabled",         _ui->checkbox_odomDisabled->isChecked());
 	settings.setValue("odomRegistration",     _ui->odom_registration->currentIndex());
@@ -2183,13 +2264,12 @@ void PreferencesDialog::writeCameraSettings(const QString & filePath) const
 	settings.beginGroup("StereoImages");
 	settings.setValue("path_left",      _ui->lineEdit_cameraStereoImages_path_left->text());
 	settings.setValue("path_right",     _ui->lineEdit_cameraStereoImages_path_right->text());
-	settings.setValue("rectify", 	    _ui->checkBox_stereoImages_rectify->isChecked());
+	settings.setValue("rectify", 	    _ui->checkBox_stereo_rectify->isChecked());
 	settings.endGroup(); // StereoImages
 
 	settings.beginGroup("StereoVideo");
 	settings.setValue("path", 			_ui->lineEdit_cameraStereoVideo_path->text());
 	settings.setValue("path2", 			_ui->lineEdit_cameraStereoVideo_path_2->text());
-	settings.setValue("rectify", 	    _ui->checkBox_stereoVideo_rectify->isChecked());
 	settings.endGroup(); // StereoVideo
 
 	settings.beginGroup("StereoZed");
@@ -2293,19 +2373,33 @@ bool PreferencesDialog::validateForm()
 #endif
 
 #if CV_MAJOR_VERSION < 3
-	if (_ui->comboBox_detector_strategy->currentIndex() == Feature2D::kFeatureFreak)
+	if (_ui->comboBox_detector_strategy->currentIndex() == Feature2D::kFeatureKaze)
 	{
+#ifdef RTABMAP_NONFREE
 		QMessageBox::warning(this, tr("Parameter warning"),
-			tr("Selected feature type (FREAK detector) is not available on OpenCV2. ORB is set instead "
+			tr("Selected feature type (KAZE) is not available on OpenCV2. SURF is set instead "
+				"for the bag-of-words dictionary."));
+		_ui->comboBox_detector_strategy->setCurrentIndex(Feature2D::kFeatureSurf);
+#else
+		QMessageBox::warning(this, tr("Parameter warning"),
+			tr("Selected feature type (KAZE) is not available on OpenCV2. ORB is set instead "
 				"for the bag-of-words dictionary."));
 		_ui->comboBox_detector_strategy->setCurrentIndex(Feature2D::kFeatureOrb);
+#endif
 	}
-	if (_ui->reextract_type->currentIndex() == Feature2D::kFeatureFreak)
+	if (_ui->reextract_type->currentIndex() == Feature2D::kFeatureKaze)
 	{
+#ifdef RTABMAP_NONFREE
 		QMessageBox::warning(this, tr("Parameter warning"),
-			tr("Selected feature type (FREAK detector) is not available on OpenCV2. ORB is set instead "
+			tr("Selected feature type (KAZE) is not available on OpenCV2. SURF is set instead "
+				"for the re-extraction of features on loop closure."));
+				_ui->reextract_type->setCurrentIndex(Feature2D::kFeatureSurf);
+#else
+		QMessageBox::warning(this, tr("Parameter warning"),
+			tr("Selected feature type (KAZE) is not available on OpenCV2. ORB is set instead "
 				"for the re-extraction of features on loop closure."));
 				_ui->reextract_type->setCurrentIndex(Feature2D::kFeatureOrb);
+#endif
 	}
 #endif
 
@@ -2696,7 +2790,7 @@ void PreferencesDialog::saveWidgetState(const QWidget * widget)
 		const CloudViewer * cloudViewer = qobject_cast<const CloudViewer*>(widget);
 		const ImageView * imageView = qobject_cast<const ImageView*>(widget);
 		const ExportCloudsDialog * exportCloudsDialog = qobject_cast<const ExportCloudsDialog*>(widget);
-		const ExportScansDialog * exportScansDialog = qobject_cast<const ExportScansDialog*>(widget);
+		const ExportBundlerDialog * exportBundlerDialog = qobject_cast<const ExportBundlerDialog*>(widget);
 		const PostProcessingDialog * postProcessingDialog = qobject_cast<const PostProcessingDialog *>(widget);
 		const GraphViewer * graphViewer = qobject_cast<const GraphViewer *>(widget);
 		const CalibrationDialog * calibrationDialog = qobject_cast<const CalibrationDialog *>(widget);
@@ -2717,10 +2811,10 @@ void PreferencesDialog::saveWidgetState(const QWidget * widget)
 			exportCloudsDialog->saveSettings(settings);
 			exportCloudsDialog->saveSettings(settingsTmp);
 		}
-		else if(exportScansDialog)
+		else if(exportBundlerDialog)
 		{
-			exportScansDialog->saveSettings(settings);
-			exportScansDialog->saveSettings(settingsTmp);
+			exportBundlerDialog->saveSettings(settings);
+			exportBundlerDialog->saveSettings(settingsTmp);
 		}
 		else if(postProcessingDialog)
 		{
@@ -2770,7 +2864,7 @@ void PreferencesDialog::loadWidgetState(QWidget * widget)
 		CloudViewer * cloudViewer = qobject_cast<CloudViewer*>(widget);
 		ImageView * imageView = qobject_cast<ImageView*>(widget);
 		ExportCloudsDialog * exportCloudsDialog = qobject_cast<ExportCloudsDialog*>(widget);
-		ExportScansDialog * exportScansDialog = qobject_cast<ExportScansDialog*>(widget);
+		ExportBundlerDialog * exportBundlerDialog = qobject_cast<ExportBundlerDialog*>(widget);
 		PostProcessingDialog * postProcessingDialog = qobject_cast<PostProcessingDialog *>(widget);
 		GraphViewer * graphViewer = qobject_cast<GraphViewer *>(widget);
 		CalibrationDialog * calibrationDialog = qobject_cast<CalibrationDialog *>(widget);
@@ -2791,10 +2885,10 @@ void PreferencesDialog::loadWidgetState(QWidget * widget)
 			exportCloudsDialog->loadSettings(settings);
 			exportCloudsDialog->saveSettings(settingsTmp);
 		}
-		else if(exportScansDialog)
+		else if(exportBundlerDialog)
 		{
-			exportScansDialog->loadSettings(settings);
-			exportScansDialog->saveSettings(settingsTmp);
+			exportBundlerDialog->loadSettings(settings);
+			exportBundlerDialog->saveSettings(settingsTmp);
 		}
 		else if(postProcessingDialog)
 		{
@@ -3834,6 +3928,18 @@ void PreferencesDialog::setupKpRoiPanel()
 	_ui->doubleSpinBox_kp_roi3->setValue(strings[3].toDouble()*100.0);
 }
 
+void PreferencesDialog::updateOdometryVisibility()
+{
+	UASSERT(_ui->odom_strategy->count() == 6);
+	_ui->groupBox_odomF2M->setVisible(_ui->odom_strategy->currentIndex()==0);
+	_ui->groupBox_odomF2F->setVisible(_ui->odom_strategy->currentIndex()==1);
+	_ui->groupBox_odomFovis->setVisible(_ui->odom_strategy->currentIndex()==2);
+	_ui->groupBox_odomViso2->setVisible(_ui->odom_strategy->currentIndex()==3);
+	_ui->groupBox_odomDVO->setVisible(_ui->odom_strategy->currentIndex()==4);
+	_ui->groupBox_odomORBSLAM2->setVisible(_ui->odom_strategy->currentIndex()==5);
+	_ui->groupBox_odomMono->setVisible(_ui->odom_strategy->currentIndex()==6);
+}
+
 void PreferencesDialog::updateKpROI()
 {
 	QStringList strings;
@@ -3853,6 +3959,14 @@ void PreferencesDialog::updateStereoDisparityVisibility()
 	_ui->label_stereo_depthGenerated->setVisible(
 		driver != PreferencesDialog::kSrcStereoZed ||
 		_ui->comboBox_stereoZed_quality->currentIndex() == 0);
+
+	_ui->checkBox_stereo_rectify->setEnabled(
+			 _ui->comboBox_cameraStereo->currentIndex() == kSrcStereoImages - kSrcStereo ||
+			 _ui->comboBox_cameraStereo->currentIndex() == kSrcStereoUsb - kSrcStereo ||
+			 _ui->comboBox_cameraStereo->currentIndex() == kSrcStereoVideo - kSrcStereo ||
+			 _ui->comboBox_cameraStereo->currentIndex() == kSrcDC1394 - kSrcStereo);
+	_ui->checkBox_stereo_rectify->setVisible(_ui->checkBox_stereo_rectify->isEnabled());
+	_ui->label_stereo_rectify->setVisible(_ui->checkBox_stereo_rectify->isEnabled());
 }
 
 void PreferencesDialog::useOdomFeatures()
@@ -3917,6 +4031,23 @@ void PreferencesDialog::changeDictionaryPath()
 	if(!path.isEmpty())
 	{
 		_ui->lineEdit_dictionaryPath->setText(path);
+	}
+}
+
+void PreferencesDialog::changeOdometryORBSLAM2Vocabulary()
+{
+	QString path;
+	if(_ui->lineEdit_OdomORBSLAM2VocPath->text().isEmpty())
+	{
+		path = QFileDialog::getOpenFileName(this, tr("ORBSLAM2 Vocabulary"), this->getWorkingDirectory());
+	}
+	else
+	{
+		path = QFileDialog::getOpenFileName(this, tr("ORBSLAM2 Vocabulary"), _ui->lineEdit_OdomORBSLAM2VocPath->text());
+	}
+	if(!path.isEmpty())
+	{
+		_ui->lineEdit_OdomORBSLAM2VocPath->setText(path);
 	}
 }
 
@@ -4037,6 +4168,10 @@ bool PreferencesDialog::notifyWhenNewGlobalPathIsReceived() const
 int PreferencesDialog::getOdomQualityWarnThr() const
 {
 	return _ui->spinBox_odomQualityWarnThr->value();
+}
+bool PreferencesDialog::isOdomOnlyInliersShown() const
+{
+	return _ui->checkBox_odom_onlyInliersShown->isChecked();
 }
 bool PreferencesDialog::isPosteriorGraphView() const
 {
@@ -4616,7 +4751,7 @@ Camera * PreferencesDialog::createCamera(bool useRawImages, bool useColor)
 		camera = new CameraStereoImages(
 			_ui->lineEdit_cameraStereoImages_path_left->text().append(QDir::separator()).toStdString(),
 			_ui->lineEdit_cameraStereoImages_path_right->text().append(QDir::separator()).toStdString(),
-			_ui->checkBox_stereoImages_rectify->isChecked() && !useRawImages,
+			_ui->checkBox_stereo_rectify->isChecked() && !useRawImages,
 			this->getGeneralInputRate(),
 			this->getSourceLocalTransform());
 		((CameraStereoImages*)camera)->setBayerMode(_ui->comboBox_cameraImages_bayerMode->currentIndex()-1);
@@ -4638,7 +4773,7 @@ Camera * PreferencesDialog::createCamera(bool useRawImages, bool useColor)
 	{
 		camera = new CameraStereoVideo(
 			this->getSourceDevice().isEmpty() ? 0 : atoi(this->getSourceDevice().toStdString().c_str()),
-			!useRawImages,
+			_ui->checkBox_stereo_rectify->isChecked() && !useRawImages,
 			this->getGeneralInputRate(),
 			this->getSourceLocalTransform());
 	}
@@ -4650,7 +4785,7 @@ Camera * PreferencesDialog::createCamera(bool useRawImages, bool useColor)
 			camera = new CameraStereoVideo(
 					_ui->lineEdit_cameraStereoVideo_path->text().toStdString(),
 					_ui->lineEdit_cameraStereoVideo_path_2->text().toStdString(),
-					_ui->checkBox_stereoVideo_rectify->isChecked() && !useRawImages,
+					_ui->checkBox_stereo_rectify->isChecked() && !useRawImages,
 					this->getGeneralInputRate(),
 					this->getSourceLocalTransform());
 		}
@@ -4659,7 +4794,7 @@ Camera * PreferencesDialog::createCamera(bool useRawImages, bool useColor)
 			// side-by-side video
 			camera = new CameraStereoVideo(
 					_ui->lineEdit_cameraStereoVideo_path->text().toStdString(),
-					_ui->checkBox_stereoVideo_rectify->isChecked() && !useRawImages,
+					_ui->checkBox_stereo_rectify->isChecked() && !useRawImages,
 					this->getGeneralInputRate(),
 					this->getSourceLocalTransform());
 		}

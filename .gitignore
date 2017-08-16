@@ -7,6 +7,8 @@ guilib/src/ui/mainWindow.ui.autosave
 /lib
 .DS_Store
 .settings/language.settings.xml
+.idea/
+cmake-build-debug/
 app/android/.classpath
 app/android/.project
 app/android/AndroidManifest.xml

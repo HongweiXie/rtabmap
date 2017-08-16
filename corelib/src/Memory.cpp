@@ -74,6 +74,7 @@ Memory::Memory(const ParametersMap & parameters) :
 	_rawDescriptorsKept(Parameters::defaultMemRawDescriptorsKept()),
 	_saveDepth16Format(Parameters::defaultMemSaveDepth16Format()),
 	_notLinkedNodesKeptInDb(Parameters::defaultMemNotLinkedNodesKept()),
+	_saveIntermediateNodeData(Parameters::defaultMemIntermediateNodeDataKept()),
 	_incrementalMemory(Parameters::defaultMemIncrementalMemory()),
 	_reduceGraph(Parameters::defaultMemReduceGraph()),
 	_maxStMemSize(Parameters::defaultMemSTMSize()),
@@ -425,6 +426,7 @@ void Memory::parseParameters(const ParametersMap & parameters)
 	Parameters::parse(parameters, Parameters::kMemSaveDepth16Format(), _saveDepth16Format);
 	Parameters::parse(parameters, Parameters::kMemReduceGraph(), _reduceGraph);
 	Parameters::parse(parameters, Parameters::kMemNotLinkedNodesKept(), _notLinkedNodesKeptInDb);
+	Parameters::parse(parameters, Parameters::kMemIntermediateNodeDataKept(), _saveIntermediateNodeData);
 	Parameters::parse(parameters, Parameters::kMemRehearsalIdUpdatedToNewOne(), _idUpdatedToNewOneRehearsal);
 	Parameters::parse(parameters, Parameters::kMemGenerateIds(), _generateIds);
 	Parameters::parse(parameters, Parameters::kMemBadSignaturesIgnored(), _badSignaturesIgnored);
@@ -580,13 +582,14 @@ bool Memory::update(
 		const SensorData & data,
 		Statistics * stats)
 {
-	return update(data, Transform(), cv::Mat(), stats);
+	return update(data, Transform(), cv::Mat(), std::vector<float>(), stats);
 }
 
 bool Memory::update(
 		const SensorData & data,
 		const Transform & pose,
 		const cv::Mat & covariance,
+		const std::vector<float> & velocity,
 		Statistics * stats)
 {
 	UDEBUG("");
@@ -612,6 +615,10 @@ bool Memory::update(
 	{
 		UERROR("Failed to create a signature...");
 		return false;
+	}
+	if(velocity.size()==6)
+	{
+		signature->setVelocity(velocity[0], velocity[1], velocity[2], velocity[3], velocity[4], velocity[5]);
 	}
 
 	t=timer.ticks()*1000;
@@ -711,7 +718,15 @@ void Memory::addSignatureToStm(Signature * signature, const cv::Mat & covariance
 				if(!signature->getPose().isNull() &&
 				   !_signatures.at(*_stMem.rbegin())->getPose().isNull())
 				{
+					UASSERT(covariance.cols == 6 && covariance.rows == 6 && covariance.type() == CV_64FC1);
 					cv::Mat infMatrix = covariance.inv();
+					if((uIsFinite(covariance.at<double>(0,0)) && covariance.at<double>(0,0)>0.0) &&
+						!(uIsFinite(infMatrix.at<double>(0,0)) && infMatrix.at<double>(0,0)>0.0))
+					{
+						UERROR("Failed to invert the covariance matrix! Covariance matrix should be invertible!");
+						std::cout << "Covariance: " << covariance << std::endl;
+						infMatrix = cv::Mat::eye(6,6,CV_64FC1);
+					}
 					motionEstimate = _signatures.at(*_stMem.rbegin())->getPose().inverse() * signature->getPose();
 					_signatures.at(*_stMem.rbegin())->addLink(Link(*_stMem.rbegin(), signature->id(), Link::kNeighbor, motionEstimate, infMatrix));
 					signature->addLink(Link(signature->id(), *_stMem.rbegin(), Link::kNeighbor, motionEstimate.inverse(), infMatrix));
@@ -798,6 +813,7 @@ void Memory::moveSignatureToWMFromSTM(int id, int * reducedTo)
 			if(!merge)
 			{
 				merge = iter->second.to() < s->id() && // should be a parent->child link
+						iter->second.to() != iter->second.from() &&
 						iter->second.type() != Link::kNeighbor &&
 						iter->second.type() != Link::kNeighborMerged &&
 						iter->second.userDataCompressed().empty() &&
@@ -951,6 +967,7 @@ std::map<int, Link> Memory::getLoopClosureLinks(
 		{
 			if(iter->second.type() != Link::kNeighbor &&
 			   iter->second.type() != Link::kNeighborMerged &&
+			   iter->second.type() != Link::kPosePrior &&
 			   iter->second.type() != Link::kUndef)
 			{
 				loopClosures.insert(*iter);
@@ -1642,6 +1659,56 @@ void Memory::saveStatistics(const Statistics & statistics)
 	}
 }
 
+void Memory::savePreviewImage(const cv::Mat & image) const
+{
+	if(_dbDriver)
+	{
+		_dbDriver->savePreviewImage(image);
+	}
+}
+cv::Mat Memory::loadPreviewImage() const
+{
+	if(_dbDriver)
+	{
+		return _dbDriver->loadPreviewImage();
+	}
+	return cv::Mat();
+}
+
+void Memory::saveOptimizedMesh(
+		const cv::Mat & cloud,
+		const std::map<int, Transform> & poses,
+		const std::vector<std::vector<std::vector<unsigned int> > > & polygons,
+#if PCL_VERSION_COMPARE(>=, 1, 8, 0)
+		const std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > & texCoords,
+#else
+		const std::vector<std::vector<Eigen::Vector2f> > & texCoords,
+#endif
+		const cv::Mat & textures) const
+{
+	if(_dbDriver)
+	{
+		_dbDriver->saveOptimizedMesh(cloud, poses, polygons, texCoords, textures);
+	}
+}
+
+cv::Mat Memory::loadOptimizedMesh(
+			std::map<int, Transform> * poses,
+			std::vector<std::vector<std::vector<unsigned int> > > * polygons,
+#if PCL_VERSION_COMPARE(>=, 1, 8, 0)
+			std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> > * texCoords,
+#else
+			std::vector<std::vector<Eigen::Vector2f> > * texCoords,
+#endif
+			cv::Mat * textures) const
+{
+	if(_dbDriver)
+	{
+		return _dbDriver->loadOptimizedMesh(poses, polygons, texCoords, textures);
+	}
+	return cv::Mat();
+}
+
 void Memory::emptyTrash()
 {
 	if(_dbDriver)
@@ -1836,27 +1903,30 @@ void Memory::moveToTrash(Signature * s, bool keepLinkedToGraph, std::list<int> *
 			const std::map<int, Link> & links = s->getLinks();
 			for(std::map<int, Link>::const_iterator iter=links.begin(); iter!=links.end(); ++iter)
 			{
-				Signature * sTo = this->_getSignature(iter->first);
-				// neighbor to s
-				UASSERT_MSG(sTo!=0,
-							uFormat("A neighbor (%d) of the deleted location %d is "
-									"not found in WM/STM! Are you deleting a location "
-									"outside the STM?", iter->first, s->id()).c_str());
-
-				if(iter->first > s->id() && links.size()>1 && sTo->hasLink(s->id()))
+				if(iter->second.from() != iter->second.to())
 				{
-					UWARN("Link %d of %d is newer, removing neighbor link "
-						  "may split the map!",
-							iter->first, s->id());
-				}
+					Signature * sTo = this->_getSignature(iter->first);
+					// neighbor to s
+					UASSERT_MSG(sTo!=0,
+								uFormat("A neighbor (%d) of the deleted location %d is "
+										"not found in WM/STM! Are you deleting a location "
+										"outside the STM?", iter->first, s->id()).c_str());
 
-				// child
-				if(iter->second.type() == Link::kGlobalClosure && s->id() > sTo->id())
-				{
-					sTo->setWeight(sTo->getWeight() + s->getWeight()); // copy weight
-				}
+					if(iter->first > s->id() && links.size()>1 && sTo->hasLink(s->id()))
+					{
+						UWARN("Link %d of %d is newer, removing neighbor link "
+							  "may split the map!",
+								iter->first, s->id());
+					}
 
-				sTo->removeLink(s->id());
+					// child
+					if(iter->second.type() == Link::kGlobalClosure && s->id() > sTo->id())
+					{
+						sTo->setWeight(sTo->getWeight() + s->getWeight()); // copy weight
+					}
+
+					sTo->removeLink(s->id());
+				}
 
 			}
 			s->removeLinks(); // remove all links
@@ -2082,6 +2152,7 @@ void Memory::removeLink(int oldId, int newId)
 			{
 				if(iter->second.type() != Link::kNeighbor &&
 				   iter->second.type() != Link::kNeighborMerged &&
+				   iter->second.type() != Link::kPosePrior &&
 				   iter->first < newS->id())
 				{
 					noChildrenAnymore = false;
@@ -2262,14 +2333,6 @@ Transform Memory::computeTransform(
 					info->rejectedMsg = msg;
 				}
 			}
-			else if(info && !transform.isIdentity())
-			{
-				//normalize variance
-				info->varianceLin *= transform.getNorm();
-				info->varianceAng *= transform.getAngle();
-				info->varianceLin = info->varianceLin>0.0f?info->varianceLin:0.0001f; // epsilon if exact transform
-				info->varianceAng = info->varianceAng>0.0f?info->varianceAng:0.0001f; // epsilon if exact transform
-			}
 		}
 	}
 	return transform;
@@ -2317,15 +2380,6 @@ Transform Memory::computeIcpTransform(
 		// compute transform fromId -> toId
 		std::vector<int> inliersV;
 		t = _registrationIcp->computeTransformation(fromS->sensorData(), toS->sensorData(), guess, info);
-
-		if(!t.isNull() && !t.isIdentity() && info)
-		{
-			// normalize variance
-			info->varianceLin *= t.getNorm();
-			info->varianceAng *= t.getAngle();
-			info->varianceLin = info->varianceLin>0.0f?info->varianceLin:0.0001f; // epsilon if exact transform
-			info->varianceAng = info->varianceAng>0.0f?info->varianceAng:0.0001f; // epsilon if exact transform
-		}
 	}
 	else
 	{
@@ -2704,7 +2758,7 @@ void Memory::dumpMemoryTree(const char * fileNameTree) const
 					{
 						childIds.insert(*iter);
 					}
-					else
+					else if(iter->second.from() != iter->second.to())
 					{
 						loopIds.insert(*iter);
 					}
@@ -2734,8 +2788,7 @@ void Memory::dumpMemoryTree(const char * fileNameTree) const
 void Memory::rehearsal(Signature * signature, Statistics * stats)
 {
 	UTimer timer;
-	if(signature->getLinks().size() != 1 ||
-	   signature->isBadSignature())
+	if(signature->isBadSignature())
 	{
 		return;
 	}
@@ -2800,7 +2853,8 @@ bool Memory::rehearsalMerge(int oldId, int newId)
 		std::map<int, Link>::const_iterator iter = oldS->getLinks().find(newS->id());
 		if(iter != oldS->getLinks().end() &&
 		   iter->second.type() != Link::kNeighbor &&
-		   iter->second.type() != Link::kNeighborMerged)
+		   iter->second.type() != Link::kNeighborMerged &&
+		   iter->second.from() != iter->second.to())
 		{
 			// do nothing, already merged
 			UWARN("already merged, old=%d, new=%d", oldId, newId);
@@ -2814,7 +2868,7 @@ bool Memory::rehearsalMerge(int oldId, int newId)
 
 		bool fullMerge;
 		bool intermediateMerge = false;
-		if(!newS->getLinks().begin()->second.transform().isNull())
+		if(!newS->getLinks().empty() && !newS->getLinks().begin()->second.transform().isNull())
 		{
 			// we are in metric SLAM mode:
 			// 1) Normal merge if not moving AND has direct link
@@ -2854,28 +2908,31 @@ bool Memory::rehearsalMerge(int oldId, int newId)
 				const std::map<int, Link> & links = oldS->getLinks();
 				for(std::map<int, Link>::const_iterator iter = links.begin(); iter!=links.end(); ++iter)
 				{
-					Link link = iter->second;
-					Link mergedLink = newToOldLink.merge(link, link.type());
-					UASSERT(mergedLink.from() == newS->id() && mergedLink.to() == link.to());
-
-					Signature * s = this->_getSignature(link.to());
-					if(s)
+					if(iter->second.from() != iter->second.to())
 					{
-						// modify neighbor "from"
-						s->removeLink(oldS->id());
-						s->addLink(mergedLink.inverse());
+						Link link = iter->second;
+						Link mergedLink = newToOldLink.merge(link, link.type());
+						UASSERT(mergedLink.from() == newS->id() && mergedLink.to() == link.to());
 
-						newS->addLink(mergedLink);
-					}
-					else
-					{
-						UERROR("Didn't find neighbor %d of %d in RAM...", link.to(), oldS->id());
+						Signature * s = this->_getSignature(link.to());
+						if(s)
+						{
+							// modify neighbor "from"
+							s->removeLink(oldS->id());
+							s->addLink(mergedLink.inverse());
+
+							newS->addLink(mergedLink);
+						}
+						else
+						{
+							UERROR("Didn't find neighbor %d of %d in RAM...", link.to(), oldS->id());
+						}
 					}
 				}
 				newS->setLabel(oldS->getLabel());
 				oldS->setLabel("");
 				oldS->removeLinks(); // remove all links
-				oldS->addLink(Link(oldS->id(), newS->id(), Link::kGlobalClosure, Transform(), 1, 1)); // to keep track of the merged location
+				oldS->addLink(Link(oldS->id(), newS->id(), Link::kGlobalClosure, Transform(), cv::Mat::eye(6,6,CV_64FC1))); // to keep track of the merged location
 
 				// Set old image to new signature
 				this->copyData(oldS, newS);
@@ -2890,7 +2947,7 @@ bool Memory::rehearsalMerge(int oldId, int newId)
 			}
 			else
 			{
-				newS->addLink(Link(newS->id(), oldS->id(), Link::kGlobalClosure, Transform() , 1, 1)); // to keep track of the merged location
+				newS->addLink(Link(newS->id(), oldS->id(), Link::kGlobalClosure, Transform() , cv::Mat::eye(6,6,CV_64FC1))); // to keep track of the merged location
 
 				// update weight
 				oldS->setWeight(newS->getWeight() + 1 + oldS->getWeight());
@@ -2949,7 +3006,8 @@ Transform Memory::getOdomPose(int signatureId, bool lookInDatabase) const
 	int mapId, weight;
 	std::string label;
 	double stamp;
-	getNodeInfo(signatureId, pose, mapId, weight, label, stamp, groundTruth, lookInDatabase);
+	std::vector<float> velocity;
+	getNodeInfo(signatureId, pose, mapId, weight, label, stamp, groundTruth, velocity, lookInDatabase);
 	return pose;
 }
 
@@ -2959,7 +3017,8 @@ Transform Memory::getGroundTruthPose(int signatureId, bool lookInDatabase) const
 	int mapId, weight;
 	std::string label;
 	double stamp;
-	getNodeInfo(signatureId, pose, mapId, weight, label, stamp, groundTruth, lookInDatabase);
+	std::vector<float> velocity;
+	getNodeInfo(signatureId, pose, mapId, weight, label, stamp, groundTruth, velocity, lookInDatabase);
 	return groundTruth;
 }
 
@@ -2970,6 +3029,7 @@ bool Memory::getNodeInfo(int signatureId,
 		std::string & label,
 		double & stamp,
 		Transform & groundTruth,
+		std::vector<float> & velocity,
 		bool lookInDatabase) const
 {
 	const Signature * s = this->getSignature(signatureId);
@@ -2981,11 +3041,12 @@ bool Memory::getNodeInfo(int signatureId,
 		label = s->getLabel();
 		stamp = s->getStamp();
 		groundTruth = s->getGroundTruthPose();
+		velocity = s->getVelocity();
 		return true;
 	}
 	else if(lookInDatabase && _dbDriver)
 	{
-		return _dbDriver->getNodeInfo(signatureId, odomPose, mapId, weight, label, stamp, groundTruth);
+		return _dbDriver->getNodeInfo(signatureId, odomPose, mapId, weight, label, stamp, groundTruth, velocity);
 	}
 	return false;
 }
@@ -3211,7 +3272,8 @@ Signature * Memory::createSignature(const SensorData & data, const Transform & p
 
 	if(!data.depthOrRightRaw().empty() &&
 		data.cameraModels().size() == 0 &&
-		!data.stereoCameraModel().isValidForProjection())
+		!data.stereoCameraModel().isValidForProjection() &&
+		!pose.isNull())
 	{
 		UERROR("Rectified images required! Calibrate your camera.");
 		return 0;
@@ -3669,7 +3731,7 @@ Signature * Memory::createSignature(const SensorData & data, const Transform & p
 	}
 
 	Signature * s;
-	if(this->isBinDataKept() && !isIntermediateNode)
+	if(this->isBinDataKept() && (!isIntermediateNode || _saveIntermediateNodeData))
 	{
 		UDEBUG("Bin data kept: rgb=%d, depth=%d, scan=%d, userData=%d",
 				image.empty()?0:1,
@@ -3852,6 +3914,12 @@ Signature * Memory::createSignature(const SensorData & data, const Transform & p
 		UDEBUG("time grid map = %fs", t);
 	}
 	s->sensorData().setOccupancyGrid(ground, obstacles, cellSize, viewPoint);
+
+	// prior
+	if(!isIntermediateNode && !data.globalPose().isNull() && data.globalPoseCovariance().cols==6 && data.globalPoseCovariance().rows==6 && data.globalPoseCovariance().cols==CV_64FC1)
+	{
+		s->addLink(Link(s->id(), s->id(), Link::kPosePrior, data.globalPose(), data.globalPoseCovariance().inv()));
+	}
 
 	return s;
 }

@@ -62,7 +62,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/utilite/UCv2Qt.h"
 
 #include "ExportCloudsDialog.h"
-#include "ExportScansDialog.h"
+#include "ExportBundlerDialog.h"
 #include "AboutDialog.h"
 #include "PostProcessingDialog.h"
 #include "DepthCalibrationDialog.h"
@@ -137,7 +137,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_preferencesDialog(0),
 	_aboutDialog(0),
 	_exportCloudsDialog(0),
-	_exportScansDialog(0),
+	_exportBundlerDialog(0),
 	_dataRecorder(0),
 	_lastId(0),
 	_firstStamp(0.0f),
@@ -185,8 +185,8 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_aboutDialog->setObjectName("AboutDialog");
 	_exportCloudsDialog = new ExportCloudsDialog(this);
 	_exportCloudsDialog->setObjectName("ExportCloudsDialog");
-	_exportScansDialog = new ExportScansDialog(this);
-	_exportScansDialog->setObjectName("ExportScansDialog");
+	_exportBundlerDialog = new ExportBundlerDialog(this);
+	_exportBundlerDialog->setObjectName("ExportBundlerDialog");
 	_postProcessingDialog = new PostProcessingDialog(this);
 	_postProcessingDialog->setObjectName("PostProcessingDialog");
 	_depthCalibrationDialog = new DepthCalibrationDialog(this);
@@ -238,7 +238,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_preferencesDialog->loadMainWindowState(this, _savedMaximized, statusBarShown);
 	_preferencesDialog->loadWindowGeometry(_preferencesDialog);
 	_preferencesDialog->loadWindowGeometry(_exportCloudsDialog);
-	_preferencesDialog->loadWindowGeometry(_exportScansDialog);
+	_preferencesDialog->loadWindowGeometry(_exportBundlerDialog);
 	_preferencesDialog->loadWindowGeometry(_postProcessingDialog);
 	_preferencesDialog->loadWindowGeometry(_depthCalibrationDialog);
 	_preferencesDialog->loadWindowGeometry(_aboutDialog);
@@ -372,11 +372,9 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	connect(_ui->action1080p, SIGNAL(triggered()), this, SLOT(setAspectRatio1080p()));
 	connect(_ui->actionCustom, SIGNAL(triggered()), this, SLOT(setAspectRatioCustom()));
 	connect(_ui->actionSave_point_cloud, SIGNAL(triggered()), this, SLOT(exportClouds()));
-	connect(_ui->actionExport_2D_scans_ply_pcd, SIGNAL(triggered()), this, SLOT(exportScans()));
 	connect(_ui->actionExport_2D_Grid_map_bmp_png, SIGNAL(triggered()), this, SLOT(exportGridMap()));
 	connect(_ui->actionExport_images_RGB_jpg_Depth_png, SIGNAL(triggered()), this , SLOT(exportImages()));
 	connect(_ui->actionExport_cameras_in_Bundle_format_out, SIGNAL(triggered()), SLOT(exportBundlerFormat()));
-	connect(_ui->actionView_scans, SIGNAL(triggered()), this, SLOT(viewScans()));
 	connect(_ui->actionExport_octomap, SIGNAL(triggered()), this, SLOT(exportOctomap()));
 	connect(_ui->actionView_high_res_point_cloud, SIGNAL(triggered()), this, SLOT(viewClouds()));
 	connect(_ui->actionReset_Odometry, SIGNAL(triggered()), this, SLOT(resetOdometry()));
@@ -467,7 +465,7 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	connect(_ui->graphicsView_graphView, SIGNAL(configChanged()), this, SLOT(configGUIModified()));
 	connect(_cloudViewer, SIGNAL(configChanged()), this, SLOT(configGUIModified()));
 	connect(_exportCloudsDialog, SIGNAL(configChanged()), this, SLOT(configGUIModified()));
-	connect(_exportScansDialog, SIGNAL(configChanged()), this, SLOT(configGUIModified()));
+	connect(_exportBundlerDialog, SIGNAL(configChanged()), this, SLOT(configGUIModified()));
 	connect(_postProcessingDialog, SIGNAL(configChanged()), this, SLOT(configGUIModified()));
 	connect(_depthCalibrationDialog, SIGNAL(configChanged()), this, SLOT(configGUIModified()));
 	connect(_ui->toolBar->toggleViewAction(), SIGNAL(toggled(bool)), this, SLOT(configGUIModified()));
@@ -523,12 +521,13 @@ MainWindow::MainWindow(PreferencesDialog * prefDialog, QWidget * parent) :
 	_ui->statsToolBox->setNewFigureMaxItems(50);
 	_ui->statsToolBox->setWorkingDirectory(_preferencesDialog->getWorkingDirectory());
 	_ui->graphicsView_graphView->setWorkingDirectory(_preferencesDialog->getWorkingDirectory());
+	_exportBundlerDialog->setWorkingDirectory(_preferencesDialog->getWorkingDirectory());
 	_cloudViewer->setBackfaceCulling(true, false);
 	_preferencesDialog->loadWidgetState(_cloudViewer);
 
 	//dialog states
 	_preferencesDialog->loadWidgetState(_exportCloudsDialog);
-	_preferencesDialog->loadWidgetState(_exportScansDialog);
+	_preferencesDialog->loadWidgetState(_exportBundlerDialog);
 	_preferencesDialog->loadWidgetState(_postProcessingDialog);
 	_preferencesDialog->loadWidgetState(_depthCalibrationDialog);
 
@@ -811,10 +810,12 @@ bool MainWindow::handleEvent(UEvent* anEvent)
 			emit cameraInfoReceived(cameraEvent->info());
 			if (_odomThread == 0 && _camera->camera()->odomProvided() && _preferencesDialog->isRGBDMode())
 			{
+				OdometryInfo odomInfo;
+				odomInfo.covariance = cameraEvent->info().odomCovariance;
 				if (!_processingOdometry && !_processingStatistics)
 				{
 					_processingOdometry = true; // if we receive too many odometry events!
-					OdometryEvent tmp(cameraEvent->data(), cameraEvent->info().odomPose, cameraEvent->info().odomCovariance);
+					OdometryEvent tmp(cameraEvent->data(), cameraEvent->info().odomPose, odomInfo);
 					emit odometryReceived(tmp, false);
 				}
 				else
@@ -824,7 +825,7 @@ bool MainWindow::handleEvent(UEvent* anEvent)
 					data.setCameraModels(cameraEvent->data().cameraModels());
 					data.setStereoCameraModel(cameraEvent->data().stereoCameraModel());
 					data.setGroundTruth(cameraEvent->data().groundTruth());
-					OdometryEvent tmp(data, cameraEvent->info().odomPose, cameraEvent->info().odomCovariance);
+					OdometryEvent tmp(data, cameraEvent->info().odomPose, odomInfo);
 					emit odometryReceived(tmp, true);
 				}
 			}
@@ -845,7 +846,7 @@ bool MainWindow::handleEvent(UEvent* anEvent)
 			data.setCameraModels(odomEvent->data().cameraModels());
 			data.setStereoCameraModel(odomEvent->data().stereoCameraModel());
 			data.setGroundTruth(odomEvent->data().groundTruth());
-			OdometryEvent tmp(data, odomEvent->pose(), odomEvent->covariance(), odomEvent->info().copyWithoutData());
+			OdometryEvent tmp(data, odomEvent->pose(), odomEvent->info().copyWithoutData());
 			emit odometryReceived(tmp, true);
 		}
 	}
@@ -1127,8 +1128,13 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 						bool inlier = odom.info().words.find(iter->first) != odom.info().words.end();
 						(*cloud)[i].r = inlier?0:255;
 						(*cloud)[i].g = 255;
-						(*cloud)[i++].b = 0;
+						(*cloud)[i].b = 0;
+						if(!_preferencesDialog->isOdomOnlyInliersShown() || inlier)
+						{
+							++i;
+						}
 					}
+					cloud->resize(i);
 
 					_cloudViewer->addCloud("featuresOdom", cloud, _odometryCorrection);
 					_cloudViewer->setCloudVisibility("featuresOdom", true);
@@ -1190,17 +1196,34 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 	{
 		if(_ui->imageView_odometry->isFeaturesShown())
 		{
-			if(odom.info().type == 0)
+			if(odom.info().type == (int)Odometry::kTypeF2M || odom.info().type == (int)Odometry::kTypeORBSLAM2)
 			{
-				_ui->imageView_odometry->setFeatures(
-						odom.info().words,
-						odom.data().depthRaw(),
-						Qt::yellow);
+				if(_preferencesDialog->isOdomOnlyInliersShown())
+				{
+					std::multimap<int, cv::KeyPoint> kpInliers;
+					for(unsigned int i=0; i<odom.info().wordInliers.size(); ++i)
+					{
+						kpInliers.insert(*odom.info().words.find(odom.info().wordInliers[i]));
+					}
+					_ui->imageView_odometry->setFeatures(
+							kpInliers,
+							odom.data().depthRaw(),
+							Qt::green);
+				}
+				else
+				{
+					_ui->imageView_odometry->setFeatures(
+							odom.info().words,
+							odom.data().depthRaw(),
+							Qt::yellow);
+				}
 			}
-			else if(odom.info().type == 1)
+			else if(odom.info().type == (int)Odometry::kTypeF2F ||
+					odom.info().type == (int)Odometry::kTypeViso2 ||
+					odom.info().type == (int)Odometry::kTypeFovis)
 			{
 				std::vector<cv::KeyPoint> kpts;
-				cv::KeyPoint::convert(odom.info().refCorners, kpts);
+				cv::KeyPoint::convert(odom.info().newCorners, kpts, 7);
 				_ui->imageView_odometry->setFeatures(
 						kpts,
 						odom.data().depthRaw(),
@@ -1208,9 +1231,9 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 			}
 		}
 
-		//detect if it is OdometryMono intitialization
+		//detect if it is OdometryMono initialization
 		bool monoInitialization = false;
-		if(_preferencesDialog->getOdomStrategy() == 2 && odom.info().type == 1)
+		if(_preferencesDialog->getOdomStrategy() ==  6 && odom.info().type == (int)Odometry::kTypeF2F)
 		{
 			monoInitialization = true;
 		}
@@ -1243,9 +1266,9 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 				_ui->imageView_odometry->setImageDepth(uCvMat2QImage(odom.data().depthOrRightRaw()));
 			}
 
-			if(odom.info().type == 0)
+			if(odom.info().type == (int)Odometry::kTypeF2M || odom.info().type == (int)Odometry::kTypeORBSLAM2)
 			{
-				if(_ui->imageView_odometry->isFeaturesShown())
+				if(_ui->imageView_odometry->isFeaturesShown() && !_preferencesDialog->isOdomOnlyInliersShown())
 				{
 					for(unsigned int i=0; i<odom.info().wordMatches.size(); ++i)
 					{
@@ -1257,7 +1280,9 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 					}
 				}
 			}
-			if(odom.info().type == 1 && odom.info().refCorners.size())
+			if((odom.info().type == (int)Odometry::kTypeF2F ||
+				odom.info().type == (int)Odometry::kTypeViso2 ||
+				odom.info().type == (int)Odometry::kTypeFovis) && odom.info().refCorners.size())
 			{
 				if(_ui->imageView_odometry->isFeaturesShown() || _ui->imageView_odometry->isLinesShown())
 				{
@@ -1273,10 +1298,10 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 						if(_ui->imageView_odometry->isLinesShown())
 						{
 							_ui->imageView_odometry->addLine(
-									odom.info().refCorners[i].x,
-									odom.info().refCorners[i].y,
 									odom.info().newCorners[i].x,
 									odom.info().newCorners[i].y,
+									odom.info().refCorners[i].x,
+									odom.info().refCorners[i].y,
 									inliers.find(i) != inliers.end()?Qt::blue:Qt::yellow);
 						}
 					}
@@ -1302,10 +1327,10 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 	_ui->statsToolBox->updateStat("Odometry/ICPInliersRatio/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().icpInliersRatio, _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Odometry/Matches/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().matches, _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Odometry/MatchesRatio/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), odom.info().features<=0?0.0f:float(odom.info().matches)/float(odom.info().features), _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/StdDevLin/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), sqrt((float)odom.info().varianceLin), _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/VarianceLin/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().varianceLin, _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/StdDevAng/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), sqrt((float)odom.info().varianceAng), _preferencesDialog->isCacheSavedInFigures());
-	_ui->statsToolBox->updateStat("Odometry/VarianceAng/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().varianceAng, _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/StdDevLin/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), sqrt((float)odom.info().covariance.at<double>(0,0)), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/VarianceLin/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().covariance.at<double>(0,0), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/StdDevAng/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), sqrt((float)odom.info().covariance.at<double>(5,5)), _preferencesDialog->isCacheSavedInFigures());
+	_ui->statsToolBox->updateStat("Odometry/VarianceAng/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().covariance.at<double>(5,5), _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Odometry/TimeEstimation/ms", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().timeEstimation*1000.0f, _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Odometry/TimeFiltering/ms", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().timeParticleFiltering*1000.0f, _preferencesDialog->isCacheSavedInFigures());
 	_ui->statsToolBox->updateStat("Odometry/Features/", _preferencesDialog->isTimeUsedInFigures()?odom.data().stamp()-_firstStamp:(float)odom.data().id(), (float)odom.info().features, _preferencesDialog->isCacheSavedInFigures());
@@ -2492,9 +2517,7 @@ void MainWindow::updateMapCloud(
 	{
 		_ui->actionSave_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
 		_ui->actionView_high_res_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
-		_ui->actionExport_2D_scans_ply_pcd->setEnabled(!_createdScans.empty());
 		_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(!_occupancyGrid->addedNodes().empty());
-		_ui->actionView_scans->setEnabled(!_createdScans.empty());
 #ifdef RTABMAP_OCTOMAP
 		_ui->actionExport_octomap->setEnabled(_octomap->octree()->size());
 #else
@@ -2988,7 +3011,14 @@ void MainWindow::createAndAddScanToMap(int nodeId, const Transform & pose, int m
 						if(filtered)
 						{
 							//reconvert the voxelized cloud
-							scan = util3d::laserScanFromPointCloud(*cloud);
+							if(scan.channels() == 2)
+							{
+								scan = util3d::laserScan2dFromPointCloud(*cloud);
+							}
+							else
+							{
+								scan = util3d::laserScanFromPointCloud(*cloud);
+							}
 						}
 						else
 						{
@@ -3718,6 +3748,7 @@ void MainWindow::applyPrefSettings(const rtabmap::ParametersMap & parameters, bo
 		{
 			_ui->statsToolBox->setWorkingDirectory(_preferencesDialog->getWorkingDirectory());
 			_ui->graphicsView_graphView->setWorkingDirectory(_preferencesDialog->getWorkingDirectory());
+			_exportBundlerDialog->setWorkingDirectory(_preferencesDialog->getWorkingDirectory());
 		}
 
 		if(_state != kIdle && parametersModified.size())
@@ -4104,7 +4135,7 @@ void MainWindow::saveConfigGUI()
 	_preferencesDialog->saveWidgetState(_ui->imageView_loopClosure);
 	_preferencesDialog->saveWidgetState(_ui->imageView_odometry);
 	_preferencesDialog->saveWidgetState(_exportCloudsDialog);
-	_preferencesDialog->saveWidgetState(_exportScansDialog);
+	_preferencesDialog->saveWidgetState(_exportBundlerDialog);
 	_preferencesDialog->saveWidgetState(_postProcessingDialog);
 	_preferencesDialog->saveWidgetState(_depthCalibrationDialog);
 	_preferencesDialog->saveWidgetState(_ui->graphicsView_graphView);
@@ -4738,13 +4769,14 @@ void MainWindow::exportPoses(int format)
 {
 	if(_currentPosesMap.size())
 	{
-		std::map<int, Transform> poses;
+		std::map<int, Transform> localTransforms;
 		QStringList items;
 		items.push_back("Robot");
 		items.push_back("Camera");
 		items.push_back("Scan");
-		QString item = QInputDialog::getItem(this, tr("Export Poses"), tr("Frame: "), items, _exportPosesFrame, false);
-		if(item.isEmpty())
+		bool ok;
+		QString item = QInputDialog::getItem(this, tr("Export Poses"), tr("Frame: "), items, _exportPosesFrame, false, &ok);
+		if(!ok || item.isEmpty())
 		{
 			return;
 		}
@@ -4790,7 +4822,7 @@ void MainWindow::exportPoses(int format)
 					}
 					if(!localTransform.isNull())
 					{
-						poses.insert(std::make_pair(iter->first, iter->second * localTransform));
+						localTransforms.insert(std::make_pair(iter->first, localTransform));
 					}
 				}
 				else
@@ -4798,18 +4830,42 @@ void MainWindow::exportPoses(int format)
 					UWARN("Did not find node %d in cache", iter->first);
 				}
 			}
-			if(poses.empty())
+			if(localTransforms.empty())
 			{
 				QMessageBox::warning(this,
 						tr("Export Poses"),
 						tr("Could not find any \"%1\" frame, exporting in Robot frame instead.").arg(item));
-				poses = _currentPosesMap;
 			}
 		}
 		else
 		{
 			_exportPosesFrame = 0;
+		}
+
+		std::map<int, Transform> poses;
+		std::multimap<int, Link> links;
+		if(localTransforms.empty())
+		{
 			poses = _currentPosesMap;
+			links = _currentLinksMap;
+		}
+		else
+		{
+			//adjust poses and links
+			for(std::map<int, Transform>::iterator iter=localTransforms.begin(); iter!=localTransforms.end(); ++iter)
+			{
+				poses.insert(std::make_pair(iter->first, _currentPosesMap.at(iter->first) * iter->second));
+			}
+			for(std::multimap<int, Link>::iterator iter=_currentLinksMap.begin(); iter!=_currentLinksMap.end(); ++iter)
+			{
+				if(uContains(poses, iter->second.from()) && uContains(poses, iter->second.to()))
+				{
+					std::multimap<int, Link>::iterator inserted = links.insert(*iter);
+					int from = iter->second.from();
+					int to = iter->second.to();
+					inserted->second.setTransform(localTransforms.at(from).inverse()*iter->second.transform()*localTransforms.at(to));
+				}
+			}
 		}
 
 		std::map<int, double> stamps;
@@ -4844,24 +4900,6 @@ void MainWindow::exportPoses(int format)
 		if(!path.isEmpty())
 		{
 			_exportPosesFileName[format] = path;
-
-			std::multimap<int, Link> links;
-			if(poses.size() != _currentPosesMap.size())
-			{
-				for(std::multimap<int, Link>::iterator iter=_currentLinksMap.begin(); iter!=_currentLinksMap.end(); ++iter)
-				{
-					if(uContains(poses, iter->second.from()) && uContains(poses, iter->second.to()))
-					{
-						links.insert(*iter);
-					}
-				}
-			}
-			else
-			{
-				links = _currentLinksMap;
-			}
-
-
 			bool saved = graph::exportPoses(path.toStdString(), format, poses, links, stamps);
 
 			if(saved)
@@ -4980,9 +5018,11 @@ void MainWindow::postProcessing()
 	bool optimizeFromGraphEnd =  Parameters::defaultRGBDOptimizeFromGraphEnd();
 	float optimizeMaxError =  Parameters::defaultRGBDOptimizeMaxError();
 	int optimizeIterations =  Parameters::defaultOptimizerIterations();
+	bool reextractFeatures = Parameters::defaultRGBDLoopClosureReextractFeatures();
 	Parameters::parse(parameters, Parameters::kRGBDOptimizeFromGraphEnd(), optimizeFromGraphEnd);
 	Parameters::parse(parameters, Parameters::kRGBDOptimizeMaxError(), optimizeMaxError);
 	Parameters::parse(parameters, Parameters::kOptimizerIterations(), optimizeIterations);
+	Parameters::parse(parameters, Parameters::kRGBDLoopClosureReextractFeatures(), reextractFeatures);
 
 	bool warn = false;
 	int loopClosuresAdded = 0;
@@ -5061,6 +5101,40 @@ void MainWindow::postProcessing()
 									uInsert(parameters, ParametersPair(Parameters::kRegStrategy(), "2"));
 								}
 								Registration * registration = Registration::create(parameters);
+
+								if(reextractFeatures)
+								{
+									signatureFrom.sensorData().uncompressData();
+									signatureTo.sensorData().uncompressData();
+
+									if(signatureFrom.sensorData().imageRaw().empty() &&
+									   signatureTo.sensorData().imageRaw().empty())
+									{
+										UWARN("\"%s\" is false and signatures (%d and %d) don't have raw "
+												"images. Update the cache.",
+											Parameters::kRGBDLoopClosureReextractFeatures().c_str());
+									}
+									else
+									{
+										signatureFrom.setWords(std::multimap<int, cv::KeyPoint>());
+										signatureFrom.setWords3(std::multimap<int, cv::Point3f>());
+										signatureFrom.setWordsDescriptors(std::multimap<int, cv::Mat>());
+										signatureFrom.sensorData().setFeatures(std::vector<cv::KeyPoint>(), std::vector<cv::Point3f>(), cv::Mat());
+										signatureTo.setWords(std::multimap<int, cv::KeyPoint>());
+										signatureTo.setWords3(std::multimap<int, cv::Point3f>());
+										signatureTo.setWordsDescriptors(std::multimap<int, cv::Mat>());
+										signatureTo.sensorData().setFeatures(std::vector<cv::KeyPoint>(), std::vector<cv::Point3f>(), cv::Mat());
+									}
+								}
+								else if(!reextractFeatures && signatureFrom.getWords().empty() && signatureTo.getWords().empty())
+								{
+									UWARN("\"%s\" is false and signatures (%d and %d) don't have words, "
+											"registration will not be possible. Set \"%s\" to true.",
+											Parameters::kRGBDLoopClosureReextractFeatures().c_str(),
+											signatureFrom.id(),
+											signatureTo.id(),
+											Parameters::kRGBDLoopClosureReextractFeatures().c_str());
+								}
 								transform = registration->computeTransformation(signatureFrom, signatureTo, Transform(), &info);
 								delete registration;
 								if(!transform.isNull())
@@ -5068,10 +5142,11 @@ void MainWindow::postProcessing()
 									if(!transform.isIdentity())
 									{
 										// normalize variance
-										info.varianceLin *= transform.getNorm();
-										info.varianceAng *= transform.getAngle();
-										info.varianceLin = info.varianceLin>0.0f?info.varianceLin:0.0001f; // epsilon if exact transform
-										info.varianceAng = info.varianceAng>0.0f?info.varianceAng:0.0001f; // epsilon if exact transform
+										info.covariance *= transform.getNorm();
+										if(info.covariance.at<double>(0,0)<=0.0)
+										{
+											info.covariance = cv::Mat::eye(6,6,CV_64FC1)*0.0001; // epsilon if exact transform
+										}
 									}
 
 									//optimize the graph to see if the new constraint is globally valid
@@ -5090,7 +5165,7 @@ void MainWindow::postProcessing()
 											}
 										}
 										std::multimap<int, Link> linksIn = _currentLinksMap;
-										linksIn.insert(std::make_pair(from, Link(from, to, Link::kUserClosure, transform, info.varianceAng, info.varianceLin)));
+										linksIn.insert(std::make_pair(from, Link(from, to, Link::kUserClosure, transform, info.covariance.inv())));
 										const Link * maxLinearLink = 0;
 										const Link * maxAngularLink = 0;
 										float maxLinearError = 0.0f;
@@ -5112,7 +5187,7 @@ void MainWindow::postProcessing()
 											for(std::multimap<int, Link>::iterator iter=links.begin(); iter!=links.end(); ++iter)
 											{
 												// ignore links with high variance
-												if(iter->second.transVariance() <= 1.0)
+												if(iter->second.transVariance() <= 1.0 && iter->second.from() != iter->second.to())
 												{
 													UASSERT(poses.find(iter->second.from())!=poses.end());
 													UASSERT(poses.find(iter->second.to())!=poses.end());
@@ -5174,7 +5249,7 @@ void MainWindow::postProcessing()
 										if(!msg.empty())
 										{
 											UWARN("%s", msg.c_str());
-											_initProgressDialog->appendText(tr("%s").arg(msg.c_str()));
+											_initProgressDialog->appendText(tr("%1").arg(msg.c_str()));
 											QApplication::processEvents();
 											updateConstraint = false;
 										}
@@ -5186,16 +5261,16 @@ void MainWindow::postProcessing()
 										addedLinks.insert(from);
 										addedLinks.insert(to);
 
-										_currentLinksMap.insert(std::make_pair(from, Link(from, to, Link::kUserClosure, transform, info.varianceAng, info.varianceLin)));
+										_currentLinksMap.insert(std::make_pair(from, Link(from, to, Link::kUserClosure, transform, info.covariance.inv())));
 										++loopClosuresAdded;
 										_initProgressDialog->appendText(tr("Detected loop closure %1->%2! (%3/%4)").arg(from).arg(to).arg(i+1).arg(clusters.size()));
-										QApplication::processEvents();
 									}
 								}
 							}
 						}
 					}
 				}
+				QApplication::processEvents();
 				_initProgressDialog->incrementStep();
 			}
 			_initProgressDialog->appendText(tr("Iteration %1/%2: Detected %3 loop closures!").arg(n+1).arg(detectLoopClosureIterations).arg(addedLinks.size()/2));
@@ -5282,7 +5357,7 @@ void MainWindow::postProcessing()
 
 						if(!transform.isNull())
 						{
-							Link newLink(from, to, iter->second.type(), transform, info.varianceAng, info.varianceLin);
+							Link newLink(from, to, iter->second.type(), transform, info.covariance.inv());
 							iter->second = newLink;
 						}
 						else
@@ -5790,13 +5865,11 @@ void MainWindow::clearTheCache()
 	_ui->statsToolBox->clear();
 	//disable save cloud action
 	_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(false);
-	_ui->actionExport_2D_scans_ply_pcd->setEnabled(false);
 	_ui->actionPost_processing->setEnabled(false);
 	_ui->actionSave_point_cloud->setEnabled(false);
 	_ui->actionExport_cameras_in_Bundle_format_out->setEnabled(false);
 	_ui->actionDepth_Calibration->setEnabled(false);
 	_ui->actionExport_images_RGB_jpg_Depth_png->setEnabled(false);
-	_ui->actionView_scans->setEnabled(false);
 	_ui->actionExport_octomap->setEnabled(false);
 	_ui->actionView_high_res_point_cloud->setEnabled(false);
 	_likelihoodCurve->clear();
@@ -6152,37 +6225,6 @@ void MainWindow::exportGridMap()
 	}
 }
 
-void MainWindow::exportScans()
-{
-	if(_exportScansDialog->isVisible())
-	{
-		return;
-	}
-
-	_exportScansDialog->exportScans(
-			_currentPosesMap,
-			_currentMapIds,
-			_cachedSignatures,
-			_createdScans,
-			_preferencesDialog->getWorkingDirectory());
-}
-
-void MainWindow::viewScans()
-{
-	if(_exportScansDialog->isVisible())
-	{
-		return;
-	}
-
-	_exportScansDialog->viewScans(
-			_ui->widget_mapVisibility->getVisiblePoses(),
-			_currentMapIds,
-			_cachedSignatures,
-			_createdScans,
-			_preferencesDialog->getWorkingDirectory());
-
-}
-
 void MainWindow::exportClouds()
 {
 	if(_exportCloudsDialog->isVisible())
@@ -6215,6 +6257,7 @@ void MainWindow::exportClouds()
 			_currentMapIds,
 			_cachedSignatures,
 			_cachedClouds,
+			_createdScans,
 			_preferencesDialog->getWorkingDirectory(),
 			_preferencesDialog->getAllParameters());
 }
@@ -6251,6 +6294,7 @@ void MainWindow::viewClouds()
 			_currentMapIds,
 			_cachedSignatures,
 			_cachedClouds,
+			_createdScans,
 			_preferencesDialog->getWorkingDirectory(),
 			_preferencesDialog->getAllParameters());
 
@@ -6463,6 +6507,11 @@ void MainWindow::exportImages()
 
 void MainWindow::exportBundlerFormat()
 {
+	if(_exportBundlerDialog->isVisible())
+	{
+		return;
+	}
+
 	std::map<int, Transform> posesIn = _ui->widget_mapVisibility->getVisiblePoses();
 
 	// Use ground truth poses if current clouds are using them
@@ -6510,9 +6559,18 @@ void MainWindow::exportBundlerFormat()
 
 	if(poses.size())
 	{
-		QString path = QFileDialog::getExistingDirectory(this, tr("Exporting cameras in Bundler format..."), _preferencesDialog->getWorkingDirectory());
+		if(_exportBundlerDialog->exec() != QDialog::Accepted)
+		{
+			return;
+		}
+		QString path = _exportBundlerDialog->outputPath();
 		if(!path.isEmpty())
 		{
+			if(!QDir(path).mkpath("."))
+			{
+				QMessageBox::warning(this, tr("Exporting cameras..."), tr("Failed creating directory %1.").arg(path));
+				return;
+			}
 			// export cameras and images
 			QFile fileOut(path+QDir::separator()+"cameras.out");
 			QFile fileList(path+QDir::separator()+"list.txt");
@@ -6521,15 +6579,10 @@ void MainWindow::exportBundlerFormat()
 			{
 				if(fileList.open(QIODevice::WriteOnly | QIODevice::Text))
 				{
-					QTextStream out(&fileOut);
-					QTextStream list(&fileList);
-					out << "# Bundle file v0.3\n";
-					out << poses.size() << " 0\n";
-
+					std::set<int> ignoredCameras;
 					for(std::map<int, Transform>::iterator iter=poses.begin(); iter!=poses.end(); ++iter)
 					{
 						QString p = QString("images")+QDir::separator()+tr("%1.jpg").arg(iter->first);
-						list << p << "\n";
 						p = path+QDir::separator()+p;
 						cv::Mat image = _cachedSignatures[iter->first].sensorData().imageRaw();
 						if(image.empty())
@@ -6537,56 +6590,133 @@ void MainWindow::exportBundlerFormat()
 							_cachedSignatures[iter->first].sensorData().uncompressDataConst(&image, 0, 0, 0);
 						}
 
-						if(cv::imwrite(p.toStdString(), image))
+						double maxLinearVel = _exportBundlerDialog->maxLinearSpeed();
+						double maxAngularVel = _exportBundlerDialog->maxAngularSpeed();
+						double laplacianThr = _exportBundlerDialog->laplacianThreshold();
+						bool blurryImage = false;
+						const std::vector<float> & velocity = _cachedSignatures[iter->first].getVelocity();
+						if(maxLinearVel>0.0 || maxAngularVel>0.0)
 						{
-							UINFO("saved image %s", p.toStdString().c_str());
+							if(velocity.size() == 6)
+							{
+								float transVel = uMax3(fabs(velocity[0]), fabs(velocity[1]), fabs(velocity[2]));
+								float rotVel = uMax3(fabs(velocity[3]), fabs(velocity[4]), fabs(velocity[5]));
+								if(maxLinearVel>0.0 && transVel > maxLinearVel)
+								{
+									UWARN("Fast motion detected for camera %d (speed=%f m/s > thr=%f m/s), camera is ignored for texturing.", iter->first, transVel, maxLinearVel);
+									blurryImage = true;
+								}
+								else if(maxAngularVel>0.0 && rotVel > maxAngularVel)
+								{
+									UWARN("Fast motion detected for camera %d (speed=%f rad/s > thr=%f rad/s), camera is ignored for texturing.", iter->first, rotVel, maxAngularVel);
+									blurryImage = true;
+								}
+							}
+							else
+							{
+								UWARN("Camera motion filtering is set, but velocity of camera %d is not available.", iter->first);
+							}
+						}
+
+						if(!blurryImage && !image.empty() && laplacianThr>0.0)
+						{
+							cv::Mat imgLaplacian;
+							cv::Laplacian(image, imgLaplacian, CV_16S);
+							cv::Mat m, s;
+							cv::meanStdDev(imgLaplacian, m, s);
+							double stddev_pxl = s.at<double>(0);
+							double var = stddev_pxl*stddev_pxl;
+							if(var < laplacianThr)
+							{
+								blurryImage = true;
+								UWARN("Camera's image %d is detected as blurry (var=%f < thr=%f), camera is ignored for texturing.", iter->first, var, laplacianThr);
+							}
+						}
+						if(blurryImage)
+						{
+							ignoredCameras.insert(iter->first);
 						}
 						else
 						{
-							UERROR("Failed to save image %s", p.toStdString().c_str());
+							if(cv::imwrite(p.toStdString(), image))
+							{
+								UINFO("saved image %s", p.toStdString().c_str());
+							}
+							else
+							{
+								UERROR("Failed to save image %s", p.toStdString().c_str());
+							}
 						}
-
-						Transform localTransform;
-						if(_cachedSignatures[iter->first].sensorData().cameraModels().size())
-						{
-							out << _cachedSignatures[iter->first].sensorData().cameraModels().at(0).fx() << " 0 0\n";
-							localTransform = _cachedSignatures[iter->first].sensorData().cameraModels().at(0).localTransform();
-						}
-						else
-						{
-							out << _cachedSignatures[iter->first].sensorData().stereoCameraModel().left().fx() << " 0 0\n";
-							localTransform = _cachedSignatures[iter->first].sensorData().stereoCameraModel().left().localTransform();
-						}
-
-						static const Transform opengl_world_T_rtabmap_world(
-								 0.0f, -1.0f, 0.0f, 0.0f,
-								 0.0f,  0.0f, 1.0f, 0.0f,
-								-1.0f,  0.0f, 0.0f, 0.0f);
-
-						static const Transform optical_rotation_inv(
-								 0.0f, -1.0f,  0.0f, 0.0f,
-								 0.0f,  0.0f, -1.0f, 0.0f,
-							     1.0f,  0.0f,  0.0f, 0.0f);
-
-						Transform pose = iter->second;
-						if(!localTransform.isNull())
-						{
-							pose*=localTransform*optical_rotation_inv;
-						}
-						Transform poseGL = opengl_world_T_rtabmap_world*pose.inverse();
-
-						out << poseGL.r11() << " " << poseGL.r12() << " " << poseGL.r13() << "\n";
-						out << poseGL.r21() << " " << poseGL.r22() << " " << poseGL.r23() << "\n";
-						out << poseGL.r31() << " " << poseGL.r32() << " " << poseGL.r33() << "\n";
-						out << poseGL.x()   << " " << poseGL.y()   << " " << poseGL.z()   << "\n";
 					}
 
-					QMessageBox::question(this,
-							tr("Exporting cameras in Bundler format..."),
-							tr("%1 cameras/images exported to directory \"%2\".").arg(poses.size()).arg(path));
+					QTextStream out(&fileOut);
+					QTextStream list(&fileList);
+					out << "# Bundle file v0.3\n";
+					out << poses.size()-ignoredCameras.size() << " 0\n";
+
+					for(std::map<int, Transform>::iterator iter=poses.begin(); iter!=poses.end(); ++iter)
+					{
+						if(ignoredCameras.find(iter->first) == ignoredCameras.end())
+						{
+							QString p = QString("images")+QDir::separator()+tr("%1.jpg").arg(iter->first);
+							list << p << "\n";
+
+							Transform localTransform;
+							if(_cachedSignatures[iter->first].sensorData().cameraModels().size())
+							{
+								out << _cachedSignatures[iter->first].sensorData().cameraModels().at(0).fx() << " 0 0\n";
+								localTransform = _cachedSignatures[iter->first].sensorData().cameraModels().at(0).localTransform();
+							}
+							else
+							{
+								out << _cachedSignatures[iter->first].sensorData().stereoCameraModel().left().fx() << " 0 0\n";
+								localTransform = _cachedSignatures[iter->first].sensorData().stereoCameraModel().left().localTransform();
+							}
+
+							static const Transform opengl_world_T_rtabmap_world(
+									 0.0f, -1.0f, 0.0f, 0.0f,
+									 0.0f,  0.0f, 1.0f, 0.0f,
+									-1.0f,  0.0f, 0.0f, 0.0f);
+
+							static const Transform optical_rotation_inv(
+									 0.0f, -1.0f,  0.0f, 0.0f,
+									 0.0f,  0.0f, -1.0f, 0.0f,
+									 1.0f,  0.0f,  0.0f, 0.0f);
+
+							Transform pose = iter->second;
+							if(!localTransform.isNull())
+							{
+								pose*=localTransform*optical_rotation_inv;
+							}
+							Transform poseGL = opengl_world_T_rtabmap_world*pose.inverse();
+
+							out << poseGL.r11() << " " << poseGL.r12() << " " << poseGL.r13() << "\n";
+							out << poseGL.r21() << " " << poseGL.r22() << " " << poseGL.r23() << "\n";
+							out << poseGL.r31() << " " << poseGL.r32() << " " << poseGL.r33() << "\n";
+							out << poseGL.x()   << " " << poseGL.y()   << " " << poseGL.z()   << "\n";
+
+						}
+					}
+
 					fileList.close();
+					fileOut.close();
+
+					QMessageBox::information(this,
+							tr("Exporting cameras in Bundler format..."),
+							tr("%1 cameras/images exported to directory \"%2\".%3")
+							.arg(poses.size())
+							.arg(path)
+							.arg(ignoredCameras.size()>0?tr(" %1/%2 cameras ignored for too fast motion and/or blur level.").arg(ignoredCameras.size()).arg(poses.size()):""));
 				}
-				fileOut.close();
+				else
+				{
+					fileOut.close();
+					QMessageBox::warning(this, tr("Exporting cameras..."), tr("Failed opening file %1 for writing.").arg(path+QDir::separator()+"list.txt"));
+				}
+			}
+			else
+			{
+				QMessageBox::warning(this, tr("Exporting cameras..."), tr("Failed opening file %1 for writing.").arg(path+QDir::separator()+"cameras.out"));
 			}
 		}
 	}
@@ -6704,7 +6834,7 @@ void MainWindow::changeState(MainWindow::State newState)
 		}
 	}
 	actions = _ui->menuFile->actions();
-	if(actions.size()==17)
+	if(actions.size()==16)
 	{
 		if(actions.at(2)->isSeparator())
 		{
@@ -6714,9 +6844,9 @@ void MainWindow::changeState(MainWindow::State newState)
 		{
 			UWARN("Menu File separators have not the same order.");
 		}
-		if(actions.at(13)->isSeparator())
+		if(actions.at(12)->isSeparator())
 		{
-			actions.at(13)->setVisible(!monitoring);
+			actions.at(12)->setVisible(!monitoring);
 		}
 		else
 		{
@@ -6770,9 +6900,7 @@ void MainWindow::changeState(MainWindow::State newState)
 		_ui->menuExport_poses->setEnabled(!_currentPosesMap.empty());
 		_ui->actionSave_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
 		_ui->actionView_high_res_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
-		_ui->actionExport_2D_scans_ply_pcd->setEnabled(!_createdScans.empty());
 		_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(!_occupancyGrid->addedNodes().empty());
-		_ui->actionView_scans->setEnabled(!_createdScans.empty());
 #ifdef RTABMAP_OCTOMAP
 		_ui->actionExport_octomap->setEnabled(_octomap->octree()->size());
 #else
@@ -6832,9 +6960,7 @@ void MainWindow::changeState(MainWindow::State newState)
 		_ui->menuExport_poses->setEnabled(!_currentPosesMap.empty());
 		_ui->actionSave_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
 		_ui->actionView_high_res_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
-		_ui->actionExport_2D_scans_ply_pcd->setEnabled(!_createdScans.empty());
 		_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(!_occupancyGrid->addedNodes().empty());
-		_ui->actionView_scans->setEnabled(!_createdScans.empty());
 #ifdef RTABMAP_OCTOMAP
 		_ui->actionExport_octomap->setEnabled(_octomap->octree()->size());
 #else
@@ -6883,9 +7009,7 @@ void MainWindow::changeState(MainWindow::State newState)
 		_ui->menuExport_poses->setEnabled(false);
 		_ui->actionSave_point_cloud->setEnabled(false);
 		_ui->actionView_high_res_point_cloud->setEnabled(false);
-		_ui->actionExport_2D_scans_ply_pcd->setEnabled(false);
 		_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(false);
-		_ui->actionView_scans->setEnabled(false);
 		_ui->actionExport_octomap->setEnabled(false);
 		_ui->actionExport_cameras_in_Bundle_format_out->setEnabled(false);
 		_ui->actionDepth_Calibration->setEnabled(false);
@@ -6927,9 +7051,7 @@ void MainWindow::changeState(MainWindow::State newState)
 			_ui->menuExport_poses->setEnabled(false);
 			_ui->actionSave_point_cloud->setEnabled(false);
 			_ui->actionView_high_res_point_cloud->setEnabled(false);
-			_ui->actionExport_2D_scans_ply_pcd->setEnabled(false);
 			_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(false);
-			_ui->actionView_scans->setEnabled(false);
 			_ui->actionExport_octomap->setEnabled(false);
 			_ui->actionExport_cameras_in_Bundle_format_out->setEnabled(false);
 			_ui->actionDepth_Calibration->setEnabled(false);
@@ -6958,9 +7080,7 @@ void MainWindow::changeState(MainWindow::State newState)
 			_ui->menuExport_poses->setEnabled(!_currentPosesMap.empty());
 			_ui->actionSave_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
 			_ui->actionView_high_res_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
-			_ui->actionExport_2D_scans_ply_pcd->setEnabled(!_createdScans.empty());
 			_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(!_occupancyGrid->addedNodes().empty());
-			_ui->actionView_scans->setEnabled(!_createdScans.empty());
 #ifdef RTABMAP_OCTOMAP
 			_ui->actionExport_octomap->setEnabled(_octomap->octree()->size());
 #else
@@ -6993,9 +7113,7 @@ void MainWindow::changeState(MainWindow::State newState)
 		_ui->menuExport_poses->setEnabled(false);
 		_ui->actionSave_point_cloud->setEnabled(false);
 		_ui->actionView_high_res_point_cloud->setEnabled(false);
-		_ui->actionExport_2D_scans_ply_pcd->setEnabled(false);
 		_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(false);
-		_ui->actionView_scans->setEnabled(false);
 		_ui->actionExport_octomap->setEnabled(false);
 		_ui->actionExport_cameras_in_Bundle_format_out->setEnabled(false);
 		_ui->actionDepth_Calibration->setEnabled(false);
@@ -7025,9 +7143,7 @@ void MainWindow::changeState(MainWindow::State newState)
 		_ui->menuExport_poses->setEnabled(!_currentPosesMap.empty());
 		_ui->actionSave_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
 		_ui->actionView_high_res_point_cloud->setEnabled(!_cachedSignatures.empty() || !_cachedClouds.empty());
-		_ui->actionExport_2D_scans_ply_pcd->setEnabled(!_createdScans.empty());
 		_ui->actionExport_2D_Grid_map_bmp_png->setEnabled(!_occupancyGrid->addedNodes().empty());
-		_ui->actionView_scans->setEnabled(!_createdScans.empty());
 #ifdef RTABMAP_OCTOMAP
 		_ui->actionExport_octomap->setEnabled(_octomap->octree()->size());
 #else

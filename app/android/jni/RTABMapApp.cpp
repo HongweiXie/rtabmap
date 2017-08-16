@@ -50,6 +50,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rtabmap/core/VWDictionary.h>
 #include <rtabmap/core/Memory.h>
 #include <rtabmap/core/GainCompensator.h>
+#include <rtabmap/core/DBDriver.h>
 #include <pcl/common/common.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/io/ply_io.h>
@@ -60,7 +61,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define LOW_RES_PIX 2
 //#define DEBUG_RENDERING_PERFORMANCE;
 
-const int g_exportedMeshId = -100;
+const int g_optMeshId = -100;
 
 static JavaVM *jvm;
 static jobject RTABMapActivity = 0;
@@ -174,6 +175,7 @@ RTABMapApp::RTABMapApp() :
 		filterPolygonsOnNextRender_(false),
 		gainCompensationOnNextRender_(0),
 		bilateralFilteringOnNextRender_(false),
+		takeScreenshotOnNextRender_(false),
 		cameraJustInitialized_(false),
 		meshDecimation_(1),
 		totalPoints_(0),
@@ -185,7 +187,7 @@ RTABMapApp::RTABMapApp() :
 		processGPUMemoryUsedBytes(0),
 		visualizingMesh_(false),
 		exportedMeshUpdated_(false),
-		exportedMesh_(new pcl::TextureMesh),
+		optMesh_(new pcl::TextureMesh),
 		mapToOdom_(rtabmap::Transform::getIdentity())
 
 {
@@ -271,14 +273,14 @@ void RTABMapApp::setScreenRotation(int displayRotation, int cameraRotation)
 	camera_->setScreenRotation(rotation);
 }
 
-int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMemory, bool optimize)
+int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMemory, bool optimize, const std::string & databaseSource)
 {
 	LOGI("Opening database %s (inMemory=%d, optimize=%d)", databasePath.c_str(), databaseInMemory?1:0, optimize?1:0);
 	this->unregisterFromEventsManager(); // to ignore published init events when closing rtabmap
 	status_.first = rtabmap::RtabmapEventInit::kInitializing;
-	openingDatabase_ = true;
 	rtabmapMutex_.lock();
 	rtabmapEvents_.clear();
+	openingDatabase_ = true;
 	if(rtabmapThread_)
 	{
 		rtabmapThread_->close(false);
@@ -288,6 +290,84 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 	}
 
 	this->registerToEventsManager();
+
+	int status = 0;
+
+	// Open visualization while we load (if there is an optimized mesh saved in database)
+	optMesh_.reset(new pcl::TextureMesh);
+	optTexture_ = cv::Mat();
+	cv::Mat cloudMat;
+	std::vector<std::vector<std::vector<unsigned int> > > polygons;
+#if PCL_VERSION_COMPARE(>=, 1, 8, 0)
+	std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > texCoords;
+#else
+	std::vector<std::vector<Eigen::Vector2f> > texCoords;
+#endif
+	cv::Mat textures;
+	std::map<int, rtabmap::Transform> optPoses;
+	if(!databaseSource.empty())
+	{
+		UEventsManager::post(new rtabmap::RtabmapEventInit(rtabmap::RtabmapEventInit::kInfo, "Loading optimized cloud/mesh..."));
+		rtabmap::DBDriver * driver = rtabmap::DBDriver::create();
+		if(driver->openConnection(databaseSource))
+		{
+			cloudMat = driver->loadOptimizedMesh(&optPoses, &polygons, &texCoords, &textures);
+			if(!cloudMat.empty())
+			{
+				LOGI("Open: Found optimized mesh! Visualizing it.");
+				optMesh_ = rtabmap::util3d::assembleTextureMesh(cloudMat, polygons, texCoords, textures, true);
+				optTexture_ = textures;
+				if(!optTexture_.empty())
+				{
+					LOGI("Open: Texture mesh: %dx%d.", optTexture_.cols, optTexture_.rows);
+					status=3;
+				}
+				else if(optMesh_->tex_polygons.size())
+				{
+					LOGI("Open: Polygon mesh");
+					status=2;
+				}
+				else if(!optMesh_->cloud.data.empty())
+				{
+					LOGI("Open: Point cloud");
+					status=1;
+				}
+			}
+			else
+			{
+				LOGI("Open: No optimized mesh found.");
+			}
+			delete driver;
+		}
+	}
+
+	if(status > 0)
+	{
+		if(status==1)
+		{
+			UEventsManager::post(new rtabmap::RtabmapEventInit(rtabmap::RtabmapEventInit::kInfo, "Loading optimized cloud...done!"));
+		}
+		else if(status==2)
+		{
+			UEventsManager::post(new rtabmap::RtabmapEventInit(rtabmap::RtabmapEventInit::kInfo, "Loading optimized mesh...done!"));
+		}
+		else
+		{
+			UEventsManager::post(new rtabmap::RtabmapEventInit(rtabmap::RtabmapEventInit::kInfo, "Loading optimized texture mesh...done!"));
+		}
+		boost::mutex::scoped_lock  lockRender(renderingMutex_);
+		visualizingMesh_ = true;
+		exportedMeshUpdated_ = true;
+	}
+
+	UEventsManager::post(new rtabmap::RtabmapEventInit(rtabmap::RtabmapEventInit::kInfo, "Loading database..."));
+	LOGI("Erasing database \"%s\"...", databasePath.c_str());
+	UFile::erase(databasePath);
+	if(!databaseSource.empty())
+	{
+		LOGI("Copying database source \"%s\" to \"%s\"...", databaseSource.c_str(), databasePath.c_str());
+		UFile::copy(databaseSource, databasePath);
+	}
 
 	//Rtabmap
 	mapToOdom_.setIdentity();
@@ -316,7 +396,6 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 			true,
 			true);
 
-	int status = 0;
 	if(signatures.size() && poses.empty())
 	{
 		LOGE("Failed to optimize the graph!");
@@ -329,7 +408,7 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 		createdMeshes_.clear();
 		int i=0;
 		UTimer addTime;
-		for(std::map<int, rtabmap::Transform>::iterator iter=poses.begin(); iter!=poses.end() && status==0; ++iter)
+		for(std::map<int, rtabmap::Transform>::iterator iter=poses.begin(); iter!=poses.end() && status>=0; ++iter)
 		{
 			try
 			{
@@ -386,6 +465,14 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 									}
 									LOGI("Created cloud %d (%fs)", id, timer.ticks());
 								}
+								else
+								{
+									LOGI("Cloud %d not added to created meshes", id);
+								}
+							}
+							else
+							{
+								UWARN("Cloud %d is empty", id);
 							}
 						}
 						else
@@ -404,6 +491,14 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 							processMemoryUsedBytes +=s.getWordsDescriptors().size()*(4+s.getWordsDescriptors().begin()->second.total());
 						}
 					}
+					else
+					{
+						UWARN("Data for node %d not found", id);
+					}
+				}
+				else
+				{
+					UWARN("Pose %d is null !?", id);
 				}
 				++i;
 				if(addTime.elapsed() >= 4.0f)
@@ -428,14 +523,19 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 				status = -2;
 			}
 		}
+		if(status < 0)
+		{
+			createdMeshes_.clear();
+		}
+		else
+		{
+			LOGI("Created %d meshes...", (int)createdMeshes_.size());
+		}
 	}
 
-	if(status < 0)
-	{
-		createdMeshes_.clear();
-	}
 
-	if(optimize && status==0)
+
+	if(optimize && status>=0)
 	{
 		UEventsManager::post(new rtabmap::RtabmapEventInit(rtabmap::RtabmapEventInit::kInfo, "Visual optimization..."));
 		gainCompensation();
@@ -477,11 +577,12 @@ int RTABMapApp::openDatabase(const std::string & databasePath, bool databaseInMe
 	rtabmapMutex_.unlock();
 
 	boost::mutex::scoped_lock  lockRender(renderingMutex_);
-	if(poses.empty())
+	if(poses.empty() || status>0)
 	{
 		openingDatabase_ = false;
 	}
-	clearSceneOnNextRender_ = true;
+
+	clearSceneOnNextRender_ = status<=0;
 
 	return status;
 }
@@ -868,7 +969,7 @@ int RTABMapApp::Render()
 	std::list<rtabmap::RtabmapEvent*> rtabmapEvents;
 	try
 	{
-		UASSERT(camera_!=0 && rtabmap_!=0);
+		UASSERT(camera_!=0);
 
 		UTimer fpsTime;
 #ifdef DEBUG_RENDERING_PERFORMANCE
@@ -876,13 +977,13 @@ int RTABMapApp::Render()
 #endif
 		boost::mutex::scoped_lock  lock(renderingMutex_);
 
+		bool notifyDataLoaded = false;
+		bool notifyCameraStarted = false;
+
 		if(clearSceneOnNextRender_)
 		{
 			visualizingMesh_ = false;
 		}
-
-		bool notifyDataLoaded = false;
-		bool notifyCameraStarted = false;
 
 		// process only pose events in visualization mode
 		rtabmap::Transform pose;
@@ -937,31 +1038,38 @@ int RTABMapApp::Render()
 				main_scene_.clear();
 				exportedMeshUpdated_ = false;
 			}
-			if(!main_scene_.hasCloud(g_exportedMeshId))
+			if(!main_scene_.hasCloud(g_optMeshId))
 			{
-				if(exportedMesh_->tex_polygons.size() && exportedMesh_->tex_polygons[0].size())
+				LOGI("Adding optimized mesh to opengl (%d points, %d polygons, %d tex_coords, materials=%d texture=%dx%d)...",
+						optMesh_->cloud.point_step==0?0:(int)optMesh_->cloud.data.size()/optMesh_->cloud.point_step,
+						optMesh_->tex_polygons.size()!=1?0:(int)optMesh_->tex_polygons[0].size(),
+						optMesh_->tex_coordinates.size()!=1?0:(int)optMesh_->tex_coordinates[0].size(),
+						(int)optMesh_->tex_materials.size(),
+						optTexture_.cols, optTexture_.rows);
+				if(optMesh_->tex_polygons.size() && optMesh_->tex_polygons[0].size())
 				{
 					Mesh mesh;
 					mesh.gains[0] = mesh.gains[1] = mesh.gains[2] = 1.0;
 					mesh.cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
 					mesh.normals.reset(new pcl::PointCloud<pcl::Normal>);
-					pcl::fromPCLPointCloud2(exportedMesh_->cloud, *mesh.cloud);
-					pcl::fromPCLPointCloud2(exportedMesh_->cloud, *mesh.normals);
-					mesh.polygons = exportedMesh_->tex_polygons[0];
-					if(exportedMesh_->tex_coordinates.size())
+					pcl::fromPCLPointCloud2(optMesh_->cloud, *mesh.cloud);
+					pcl::fromPCLPointCloud2(optMesh_->cloud, *mesh.normals);
+					mesh.polygons = optMesh_->tex_polygons[0];
+					mesh.pose.setIdentity();
+					if(optMesh_->tex_coordinates.size())
 					{
-						mesh.texCoords = exportedMesh_->tex_coordinates[0];
-						mesh.texture = exportedTexture_;
+						mesh.texCoords = optMesh_->tex_coordinates[0];
+						mesh.texture = optTexture_;
 					}
 
-					main_scene_.addMesh(g_exportedMeshId, mesh, opengl_world_T_rtabmap_world);
+					main_scene_.addMesh(g_optMeshId, mesh, opengl_world_T_rtabmap_world, true);
 				}
 				else
 				{
 					pcl::IndicesPtr indices(new std::vector<int>); // null
 					pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-					pcl::fromPCLPointCloud2(exportedMesh_->cloud, *cloud);
-					main_scene_.addCloud(g_exportedMeshId, cloud, indices, opengl_world_T_rtabmap_world);
+					pcl::fromPCLPointCloud2(optMesh_->cloud, *cloud);
+					main_scene_.addCloud(g_optMeshId, cloud, indices, opengl_world_T_rtabmap_world);
 				}
 			}
 
@@ -969,7 +1077,7 @@ int RTABMapApp::Render()
 			bool isMeshRendering = main_scene_.isMeshRendering();
 			bool isTextureRendering = main_scene_.isMeshTexturing();
 
-			main_scene_.setMeshRendering(main_scene_.hasMesh(g_exportedMeshId), main_scene_.hasTexture(g_exportedMeshId));
+			main_scene_.setMeshRendering(main_scene_.hasMesh(g_optMeshId), main_scene_.hasTexture(g_optMeshId));
 
 			fpsTime.restart();
 			lastDrawnCloudsCount_ = main_scene_.Render();
@@ -983,11 +1091,11 @@ int RTABMapApp::Render()
 		}
 		else
 		{
-			if(main_scene_.hasCloud(g_exportedMeshId))
+			if(main_scene_.hasCloud(g_optMeshId))
 			{
 				main_scene_.clear();
-				exportedMesh_.reset(new pcl::TextureMesh);
-				exportedTexture_ = cv::Mat();
+				optMesh_.reset(new pcl::TextureMesh);
+				optTexture_ = cv::Mat();
 			}
 
 			// should be before clearSceneOnNextRender_ in case database is reset
@@ -1020,6 +1128,7 @@ int RTABMapApp::Render()
 
 			if(clearSceneOnNextRender_)
 			{
+				LOGI("Clearing all rendering data...");
 				odomMutex_.lock();
 				odomEvents_.clear();
 				odomMutex_.unlock();
@@ -1033,6 +1142,7 @@ int RTABMapApp::Render()
 				if(!openingDatabase_)
 				{
 					boost::mutex::scoped_lock  lock(meshesMutex_);
+					LOGI("Clearing  meshes...");
 					createdMeshes_.clear();
 				}
 				else
@@ -1061,6 +1171,8 @@ int RTABMapApp::Render()
 				{
 					LOGI("added (%d) != meshes (%d)", (int)added.size(), meshes);
 					processGPUMemoryUsedBytes = 0;
+					boost::mutex::scoped_lock  lockRtabmap(rtabmapMutex_);
+					UASSERT(rtabmap_!=0);
 					for(std::map<int, Mesh>::iterator iter=createdMeshes_.begin(); iter!=createdMeshes_.end(); ++iter)
 					{
 						if(!main_scene_.hasCloud(iter->first) && !iter->second.pose.isNull())
@@ -1461,7 +1573,7 @@ int RTABMapApp::Render()
 			if(rtabmapEvents.size())
 			{
 				// send statistics to GUI
-				LOGW("Posting PostRenderEvent! %fs", renderingTime_);
+				LOGI("New data added to map, rendering time: %fs", renderingTime_);
 				UEventsManager::post(new PostRenderEvent(rtabmapEvents.back()));
 				rtabmapEvents.pop_back();
 
@@ -1475,7 +1587,34 @@ int RTABMapApp::Render()
 			}
 		}
 
-		if(openingDatabase_ || exporting_ || postProcessing_)
+		if(takeScreenshotOnNextRender_)
+		{
+			takeScreenshotOnNextRender_ = false;
+			int w = main_scene_.getViewPortWidth();
+			int h = main_scene_.getViewPortHeight();
+			cv::Mat image(h, w, CV_8UC4);
+			glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, image.data);
+			cv::flip(image, image, 0);
+			cv::cvtColor(image, image, CV_RGBA2BGRA);
+			cv::Mat roi;
+			if(w>h)
+			{
+				int offset = (w-h)/2;
+				roi = image(cv::Range::all(), cv::Range(offset,offset+h));
+			}
+			else
+			{
+				int offset = (h-w)/2;
+				roi = image(cv::Range(offset,offset+w), cv::Range::all());
+			}
+			rtabmapMutex_.lock();
+			LOGI("Saving screenshot %dx%d...", roi.cols, roi.rows);
+			rtabmap_->getMemory()->savePreviewImage(roi);
+			rtabmapMutex_.unlock();
+			screenshotReady_.release();
+		}
+
+		if((openingDatabase_ && !visualizingMesh_) || exporting_ || postProcessing_)
 		{
 			// throttle rendering max 5Hz if we are doing some processing
 			double renderTime = fpsTime.elapsed();
@@ -1598,6 +1737,18 @@ void RTABMapApp::setPointSize(float value)
 {
 	main_scene_.setPointSize(value);
 }
+void RTABMapApp::setFOV(float angle)
+{
+	main_scene_.setFOV(angle);
+}
+void RTABMapApp::setOrthoCropFactor(float value)
+{
+	main_scene_.setOrthoCropFactor(value);
+}
+void RTABMapApp::setGridRotation(float value)
+{
+	main_scene_.setGridRotation(value);
+}
 void RTABMapApp::setLighting(bool enabled)
 {
 	main_scene_.setLighting(enabled);
@@ -1605,6 +1756,10 @@ void RTABMapApp::setLighting(bool enabled)
 void RTABMapApp::setBackfaceCulling(bool enabled)
 {
 	main_scene_.setBackfaceCulling(enabled);
+}
+void RTABMapApp::setWireframe(bool enabled)
+{
+	main_scene_.setWireframe(enabled);
 }
 
 void RTABMapApp::setLocalizationMode(bool enabled)
@@ -1834,10 +1989,17 @@ void RTABMapApp::resetMapping()
 
 void RTABMapApp::save(const std::string & databasePath)
 {
+	LOGI("Saving database to %s", databasePath.c_str());
 	rtabmapThread_->join(true);
 
-	// save mapping parameters in the database
+	LOGI("Taking screenshot...");
+	takeScreenshotOnNextRender_ = true;
+	if(!screenshotReady_.acquire(1, 2000))
+	{
+		UERROR("Failed to take a screenshot after 2 sec!");
+	}
 
+	// save mapping parameters in the database
 	bool appendModeBackup = appendMode_;
 	if(appendMode_)
 	{
@@ -1858,401 +2020,16 @@ void RTABMapApp::save(const std::string & databasePath)
 		dataRecorderMode_ = dataRecorderModeBackup;
 	}
 
+	std::map<int, rtabmap::Transform> poses = rtabmap_->getLocalOptimizedPoses();
 	rtabmap_->close(true, databasePath);
 	rtabmap_->init(getRtabmapParameters(), dataRecorderMode_?"":databasePath);
+	rtabmap_->setOptimizedPoses(poses);
 	if(dataRecorderMode_)
 	{
 		clearSceneOnNextRender_ = true;
 	}
 	rtabmapThread_->start();
 
-}
-
-double sqr(uchar v)
-{
-	return double(v)*double(v);
-}
-
-cv::Mat RTABMapApp::mergeTextures(
-		pcl::TextureMesh & mesh,
-		int textureSize,
-		const std::vector<std::map<int, pcl::PointXY> > & vertexToPixels) const
-{
-	UASSERT(textureSize> 0);
-	LOGD("textureSize = %d materials=%d", textureSize, mesh.tex_materials.size());
-	cv::Mat globalTexture;
-	if(mesh.tex_materials.size() >= 1)
-	{
-		std::vector<int> textures(mesh.tex_materials.size(), -1);
-		cv::Size imageSize;
-		int imageType=CV_8UC3;
-		for(unsigned int i=0; i<mesh.tex_materials.size(); ++i)
-		{
-			if(!mesh.tex_materials[i].tex_file.empty() &&
-				mesh.tex_polygons[i].size() &&
-			   uIsInteger(mesh.tex_materials[i].tex_file, false))
-			{
-				int textureId = uStr2Int(mesh.tex_materials[i].tex_file);
-				textures[i] = textureId;
-
-				if(imageSize.height == 0)
-				{
-					rtabmap::SensorData data = rtabmap_->getMemory()->getNodeData(textureId);
-
-					UASSERT(!data.imageCompressed().empty() &&
-						data.cameraModels().size()==1 &&
-						data.cameraModels()[0].imageHeight()>0);
-					imageSize = data.cameraModels()[0].imageSize();
-				}
-			}
-			else
-			{
-				textures[i] = -1;
-			}
-		}
-		if(textures.size() && imageSize.height>0 && imageSize.width>0)
-		{
-			float scale = 0.0f;
-			std::vector<bool> materialsKept;
-			rtabmap::util3d::concatenateTextureMaterials(mesh, imageSize, textureSize, scale, &materialsKept);
-			LOGD("scale=%f materials=%d", scale, (int)mesh.tex_materials.size());
-			if(scale && mesh.tex_materials.size()==1)
-			{
-				int cols = float(textureSize)/(scale*imageSize.width);
-
-				globalTexture = cv::Mat(textureSize, textureSize, imageType, cv::Scalar::all(255));
-				cv::Mat globalTextureMask = cv::Mat(textureSize, textureSize, CV_8UC1, cv::Scalar::all(0));
-
-				// make a blank texture
-				cv::Mat emptyImage(int(imageSize.height*scale), int(imageSize.width*scale), imageType, cv::Scalar::all(255));
-				cv::Mat emptyImageMask(int(imageSize.height*scale), int(imageSize.width*scale), CV_8UC1, cv::Scalar::all(255));
-				int oi=0;
-				std::vector<cv::Point2i> imageOrigin(textures.size());
-				std::vector<int> newCamIndex(textures.size(), -1);
-				for(int i=0; i<(int)textures.size(); ++i)
-				{
-					if(materialsKept.at(i))
-					{
-						int u = oi%cols * emptyImage.cols;
-						int v = oi/cols * emptyImage.rows;
-						UASSERT(u < textureSize-emptyImage.cols);
-						UASSERT(v < textureSize-emptyImage.rows);
-						newCamIndex[i] = oi;
-						imageOrigin[i].x = u;
-						imageOrigin[i].y = v;
-						if(textures[i]>=0)
-						{
-							rtabmap::SensorData data = rtabmap_->getMemory()->getNodeData(textures[i]);
-							UASSERT_MSG(!data.imageCompressed().empty(), uFormat("id=%d", textures[i]).c_str());
-							cv::Mat image;
-							data.uncompressDataConst(&image, 0);
-							UASSERT(!image.empty());
-							cv::Mat resizedImage;
-							cv::resize(image, resizedImage, emptyImage.size(), 0.0f, 0.0f, cv::INTER_AREA);
-							if(vertexToPixels.empty() &&
-								createdMeshes_.find(textures[i]) != createdMeshes_.end() &&
-								(createdMeshes_.at(textures[i]).gains[0] != 1.0 || createdMeshes_.at(textures[i]).gains[1] != 1.0 || createdMeshes_.at(textures[i]).gains[2] != 1.0))
-							{
-								std::vector<cv::Mat> channels;
-								cv::split(resizedImage, channels);
-								// assuming BGR
-								cv::multiply(channels[0], createdMeshes_.at(textures[i]).gains[2], channels[0]);
-								cv::multiply(channels[1], createdMeshes_.at(textures[i]).gains[1], channels[1]);
-								cv::multiply(channels[2], createdMeshes_.at(textures[i]).gains[0], channels[2]);
-								cv::merge(channels, resizedImage);
-							}
-							if(resizedImage.type() == CV_8UC1)
-							{
-								cv::Mat resizedImageColor;
-								cv::cvtColor(resizedImage,resizedImageColor,CV_GRAY2RGB);
-								resizedImage = resizedImageColor;
-							}
-							UASSERT(resizedImage.type() == globalTexture.type());
-							resizedImage.copyTo(globalTexture(cv::Rect(u, v, resizedImage.cols, resizedImage.rows)));
-							emptyImageMask.copyTo(globalTextureMask(cv::Rect(u, v, emptyImageMask.cols, emptyImageMask.rows)));
-						}
-						else
-						{
-							emptyImage.copyTo(globalTexture(cv::Rect(u, v, emptyImage.cols, emptyImage.rows)));
-						}
-						++oi;
-					}
-
-					if(progressionStatus_.isCanceled())
-					{
-						return cv::Mat();
-					}
-
-					progressionStatus_.increment();
-				}
-
-				if(vertexToPixels.size())
-				{
-					// gain compensation
-					const int num_images = static_cast<int>(oi);
-					cv::Mat_<int> N(num_images, num_images); N.setTo(0);
-					cv::Mat_<double> I(num_images, num_images); I.setTo(0);
-
-					cv::Mat_<double> IR(num_images, num_images); IR.setTo(0);
-					cv::Mat_<double> IG(num_images, num_images); IG.setTo(0);
-					cv::Mat_<double> IB(num_images, num_images); IB.setTo(0);
-
-					// Adjust UV coordinates to globalTexture
-					for(unsigned int p=0; p<vertexToPixels.size(); ++p)
-					{
-						for(std::map<int, pcl::PointXY>::const_iterator iter=vertexToPixels[p].begin(); iter!=vertexToPixels[p].end(); ++iter)
-						{
-							if(materialsKept.at(iter->first))
-							{
-								N(newCamIndex[iter->first], newCamIndex[iter->first]) +=1;
-
-								std::map<int, pcl::PointXY>::const_iterator jter=iter;
-								++jter;
-								int k = 1;
-								for(; jter!=vertexToPixels[p].end(); ++jter, ++k)
-								{
-									if(materialsKept.at(jter->first))
-									{
-										int i = newCamIndex[iter->first];
-										int j = newCamIndex[jter->first];
-
-										N(i, j) += 1;
-										N(j, i) += 1;
-
-										// uv in globalTexture
-										int ui = iter->second.x*emptyImage.cols + imageOrigin[iter->first].x;
-										int vi = (1.0-iter->second.y)*emptyImage.rows + imageOrigin[iter->first].y;
-										int uj = jter->second.x*emptyImage.cols + imageOrigin[jter->first].x;
-										int vj = (1.0-jter->second.y)*emptyImage.rows + imageOrigin[jter->first].y;
-										cv::Vec3b * pt1 = globalTexture.ptr<cv::Vec3b>(vi,ui);
-										cv::Vec3b * pt2 = globalTexture.ptr<cv::Vec3b>(vj,uj);
-
-										I(i, j) += std::sqrt(static_cast<double>(sqr(pt1->val[0]) + sqr(pt1->val[1]) + sqr(pt1->val[2])));
-										I(j, i) += std::sqrt(static_cast<double>(sqr(pt2->val[0]) + sqr(pt2->val[1]) + sqr(pt2->val[2])));
-
-										IR(i, j) += static_cast<double>(pt1->val[2]);
-										IR(j, i) += static_cast<double>(pt2->val[2]);
-										IG(i, j) += static_cast<double>(pt1->val[1]);
-										IG(j, i) += static_cast<double>(pt2->val[1]);
-										IB(i, j) += static_cast<double>(pt1->val[0]);
-										IB(j, i) += static_cast<double>(pt2->val[0]);
-									}
-								}
-							}
-						}
-					}
-
-					for(int i=0; i<num_images; ++i)
-					{
-						for(int j=i+1; j<num_images; ++j)
-						{
-							if(N(i, j))
-							{
-								I(i, j) /= N(i, j);
-								I(j, i) /= N(j, i);
-
-								IR(i, j) /= N(i, j);
-								IR(j, i) /= N(j, i);
-								IG(i, j) /= N(i, j);
-								IG(j, i) /= N(j, i);
-								IB(i, j) /= N(i, j);
-								IB(j, i) /= N(j, i);
-							}
-						}
-					}
-
-					cv::Mat_<double> A(num_images, num_images); A.setTo(0);
-					cv::Mat_<double> b(num_images, 1); b.setTo(0);
-					cv::Mat_<double> AR(num_images, num_images); AR.setTo(0);
-					cv::Mat_<double> AG(num_images, num_images); AG.setTo(0);
-					cv::Mat_<double> AB(num_images, num_images); AB.setTo(0);
-					double alpha = 0.01;
-					double beta = 10.0;
-					for (int i = 0; i < num_images; ++i)
-					{
-						for (int j = 0; j < num_images; ++j)
-						{
-							b(i, 0) += beta * N(i, j);
-							A(i, i) += beta * N(i, j);
-							AR(i, i) += beta * N(i, j);
-							AG(i, i) += beta * N(i, j);
-							AB(i, i) += beta * N(i, j);
-							if (j == i) continue;
-							A(i, i) += 2 * alpha * I(i, j) * I(i, j) * N(i, j);
-							A(i, j) -= 2 * alpha * I(i, j) * I(j, i) * N(i, j);
-
-							AR(i, i) += 2 * alpha * IR(i, j) * IR(i, j) * N(i, j);
-							AR(i, j) -= 2 * alpha * IR(i, j) * IR(j, i) * N(i, j);
-
-							AG(i, i) += 2 * alpha * IG(i, j) * IG(i, j) * N(i, j);
-							AG(i, j) -= 2 * alpha * IG(i, j) * IG(j, i) * N(i, j);
-
-							AB(i, i) += 2 * alpha * IB(i, j) * IB(i, j) * N(i, j);
-							AB(i, j) -= 2 * alpha * IB(i, j) * IB(j, i) * N(i, j);
-						}
-					}
-
-					cv::Mat_<double> gainsGray, gainsR, gainsG, gainsB;
-					cv::solve(A, b, gainsGray);
-
-					cv::solve(AR, b, gainsR);
-					cv::solve(AG, b, gainsG);
-					cv::solve(AB, b, gainsB);
-
-					cv::Mat_<double> gains(gainsGray.rows, 4);
-					gainsGray.copyTo(gains.col(0));
-					gainsR.copyTo(gains.col(1));
-					gainsG.copyTo(gains.col(2));
-					gainsB.copyTo(gains.col(3));
-
-					for(int t=0; t<(int)textures.size(); ++t)
-					{
-						//break;
-						if(materialsKept.at(t))
-						{
-							int u = imageOrigin[t].x;
-							int v = imageOrigin[t].y;
-
-							cv::Mat roi = globalTexture(cv::Rect(u, v, emptyImage.cols, emptyImage.rows));
-
-							std::vector<cv::Mat> channels;
-							cv::split(roi, channels);
-							// assuming BGR
-							cv::multiply(channels[0], gains(newCamIndex[t], 3), channels[0]);
-							cv::multiply(channels[1], gains(newCamIndex[t], 2), channels[1]);
-							cv::multiply(channels[2], gains(newCamIndex[t], 1), channels[2]);
-							cv::merge(channels, roi);
-						}
-					}
-					progressionStatus_.increment();
-
-					// blending BGR
-					int decimation = 0;
-
-					// determinate decimation to apply
-					std::vector<float> edgeLengths;
-					if(mesh.tex_coordinates.size() && mesh.tex_coordinates[0].size())
-					{
-						UASSERT(mesh.tex_polygons.size() && mesh.tex_polygons[0].size() && mesh.tex_polygons[0][0].vertices.size());
-						int polygonSize = mesh.tex_polygons[0][0].vertices.size();
-
-						for(unsigned int i=0; i<mesh.tex_coordinates[0].size(); i+=polygonSize)
-						{
-							for(int j=0; j<polygonSize; ++j)
-							{
-								const Eigen::Vector2f & uc1 = mesh.tex_coordinates[0][i + j];
-								const Eigen::Vector2f & uc2 = mesh.tex_coordinates[0][i + (j+1)%polygonSize];
-								Eigen::Vector2f edge = (uc1-uc2)*textureSize;
-								edgeLengths.push_back(fabs(edge[0]));
-								edgeLengths.push_back(fabs(edge[1]));
-							}
-						}
-						float edgeLength = 0.0f;
-						if(edgeLengths.size())
-						{
-							std::sort(edgeLengths.begin(), edgeLengths.end());
-							float m = uMean(edgeLengths.data(), edgeLengths.size());
-							float stddev = std::sqrt(uVariance(edgeLengths.data(), edgeLengths.size(), m));
-							edgeLength = m+stddev;
-							decimation = 1 << 6;
-							for(int i=1; i<=6; ++i)
-							{
-								if(float(1 << i) >= edgeLength)
-								{
-									decimation = 1 << i;
-									break;
-								}
-							}
-						}
-					}
-
-					if(decimation>0)
-					{
-						cv::Mat blendGains(globalTexture.rows/decimation, globalTexture.cols/decimation, CV_32FC3, cv::Scalar::all(1.0f));
-						for(unsigned int p=0; p<vertexToPixels.size(); ++p)
-						{
-							if(vertexToPixels[p].size() > 1)
-							{
-								std::vector<float> gainsB(vertexToPixels[p].size());
-								std::vector<float> gainsG(vertexToPixels[p].size());
-								std::vector<float> gainsR(vertexToPixels[p].size());
-								float sumWeight = 0.0f;
-								int k=0;
-								for(std::map<int, pcl::PointXY>::const_iterator iter=vertexToPixels[p].begin(); iter!=vertexToPixels[p].end(); ++iter)
-								{
-									if(materialsKept.at(iter->first))
-									{
-										int u = iter->second.x*emptyImage.cols + imageOrigin[iter->first].x;
-										int v = (1.0-iter->second.y)*emptyImage.rows + imageOrigin[iter->first].y;
-										float x = iter->second.x - 0.5f;
-										float y = iter->second.y - 0.5f;
-										float weight = 0.7f - sqrt(x*x+y*y);
-										if(weight<0.0f)
-										{
-											weight = 0.0f;
-										}
-										cv::Vec3b * pt = globalTexture.ptr<cv::Vec3b>(v,u);
-										gainsB[k] = static_cast<double>(pt->val[0]) * weight;
-										gainsG[k] = static_cast<double>(pt->val[1]) * weight;
-										gainsR[k] = static_cast<double>(pt->val[2]) * weight;
-										sumWeight += weight;
-										++k;
-									}
-								}
-								gainsB.resize(k);
-								gainsG.resize(k);
-								gainsR.resize(k);
-
-								if(sumWeight > 0)
-								{
-									float targetColor[3];
-									targetColor[0] = uSum(gainsB.data(), gainsB.size()) / sumWeight;
-									targetColor[1] = uSum(gainsG.data(), gainsG.size()) / sumWeight;
-									targetColor[2] = uSum(gainsR.data(), gainsR.size()) / sumWeight;
-									for(std::map<int, pcl::PointXY>::const_iterator iter=vertexToPixels[p].begin(); iter!=vertexToPixels[p].end(); ++iter)
-									{
-										if(materialsKept.at(iter->first))
-										{
-											int u = iter->second.x*emptyImage.cols + imageOrigin[iter->first].x;
-											int v = (1.0-iter->second.y)*emptyImage.rows + imageOrigin[iter->first].y;
-											cv::Vec3b * pt = globalTexture.ptr<cv::Vec3b>(v,u);
-											float gB = targetColor[0]/(pt->val[0]==0?1.0f:pt->val[0]);
-											float gG = targetColor[1]/(pt->val[1]==0?1.0f:pt->val[1]);
-											float gR = targetColor[2]/(pt->val[2]==0?1.0f:pt->val[2]);
-											cv::Vec3f * ptr = blendGains.ptr<cv::Vec3f>(v/decimation, u/decimation);
-											ptr->val[0] = (gB>1.3f)?1.3f:(gB<0.7f)?0.7f:gB;
-											ptr->val[1] = (gG>1.3f)?1.3f:(gG<0.7f)?0.7f:gG;
-											ptr->val[2] = (gR>1.3f)?1.3f:(gR<0.7f)?0.7f:gR;
-										}
-									}
-								}
-							}
-						}
-
-						cv::Mat dst;
-						cv::blur(blendGains, dst, cv::Size(3,3));
-						cv::resize(dst, blendGains, globalTexture.size(), 0, 0, cv::INTER_LINEAR);
-
-						cv::multiply(globalTexture, blendGains, globalTexture, 1.0, CV_8UC3);
-					}
-					progressionStatus_.increment();
-				}
-			}
-			else
-			{
-				UERROR("Failed merging textures");
-			}
-		}
-		else if(textures.size() == 0)
-		{
-			UERROR("No textures kept!");
-		}
-		else
-		{
-			UERROR("No image size set!");
-		}
-	}
-	return globalTexture;
 }
 
 void RTABMapApp::cancelProcessing()
@@ -2262,11 +2039,11 @@ void RTABMapApp::cancelProcessing()
 }
 
 bool RTABMapApp::exportMesh(
-		const std::string & filePath,
 		float cloudVoxelSize,
 		bool regenerateCloud,
 		bool meshing,
 		int textureSize,
+		int textureCount,
 		int normalK,
 		bool optimized,
 		float optimizedVoxelSize,
@@ -2274,13 +2051,31 @@ bool RTABMapApp::exportMesh(
 		int optimizedMaxPolygons,
 		float optimizedColorRadius,
 		bool optimizedCleanWhitePolygons,
-		bool optimizedColorWhitePolygons, // not yet used
+		int optimizedMinClusterSize,
 		float optimizedMaxTextureDistance,
 		int optimizedMinTextureClusterSize,
 		bool blockRendering)
 {
 	// make sure createdMeshes_ is not modified while exporting! We don't
 	// lock the meshesMutex_ because we want to continue rendering.
+
+	std::map<int, rtabmap::Transform> poses = rtabmap_->getLocalOptimizedPoses();
+	if(poses.empty())
+	{
+		// look if we just triggered new map without localizing afterward (pause/resume in append Mode)
+		std::multimap<int, rtabmap::Link> links;
+		rtabmap_->getGraph(
+				poses,
+				links,
+				true,
+				false);
+		if(poses.empty())
+		{
+			UERROR("Empty optimized poses!");
+			return false;
+		}
+		rtabmap_->setOptimizedPoses(poses);
+	}
 
 	if(blockRendering)
 	{
@@ -2294,8 +2089,6 @@ bool RTABMapApp::exportMesh(
 
 	try
 	{
-		std::map<int, rtabmap::Transform> poses = rtabmap_->getLocalOptimizedPoses();
-
 		int totalSteps = 0;
 		totalSteps+=poses.size(); // assemble
 		if(meshing)
@@ -2336,13 +2129,14 @@ bool RTABMapApp::exportMesh(
 			pcl::PolygonMesh::Ptr polygonMesh(new pcl::PolygonMesh);
 			pcl::TextureMesh::Ptr textureMesh(new pcl::TextureMesh);
 			std::vector<std::map<int, pcl::PointXY> > vertexToPixels;
-			cv::Mat globalTexture;
+			cv::Mat globalTextures;
 			int totalPolygons = 0;
 			{
 				if(optimized)
 				{
 					std::map<int, rtabmap::Transform> cameraPoses;
 					std::map<int, rtabmap::CameraModel> cameraModels;
+					std::map<int, cv::Mat> cameraDepths;
 
 					UTimer timer;
 					LOGI("Assemble clouds (%d)...", (int)poses.size());
@@ -2358,6 +2152,7 @@ bool RTABMapApp::exportMesh(
 						pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
 						pcl::IndicesPtr indices(new std::vector<int>);
 						rtabmap::CameraModel model;
+						cv::Mat depth;
 						float gains[3] = {1.0f};
 						if(jter != createdMeshes_.end())
 						{
@@ -2367,6 +2162,9 @@ bool RTABMapApp::exportMesh(
 							gains[0] = jter->second.gains[0];
 							gains[1] = jter->second.gains[1];
 							gains[2] = jter->second.gains[2];
+
+							rtabmap::SensorData data = rtabmap_->getMemory()->getNodeData(iter->first, false);
+							data.uncompressData(0, &depth);
 						}
 						else
 						{
@@ -2375,6 +2173,7 @@ bool RTABMapApp::exportMesh(
 							{
 								cloud = rtabmap::util3d::cloudRGBFromSensorData(data, meshDecimation_, maxCloudDepth_, minCloudDepth_, indices.get());
 								model = data.cameraModels()[0];
+								depth = data.depthRaw();
 							}
 						}
 						if(cloud->size() && indices->size() && model.isValidForProjection())
@@ -2422,6 +2221,10 @@ bool RTABMapApp::exportMesh(
 
 							cameraPoses.insert(std::make_pair(iter->first, iter->second));
 							cameraModels.insert(std::make_pair(iter->first, model));
+							if(!depth.empty())
+							{
+								cameraDepths.insert(std::make_pair(iter->first, depth));
+							}
 
 							LOGI("Assembled %d points (%d/%d total=%d)", (int)cloudWithNormals->size(), ++cloudCount, (int)poses.size(), (int)mergedClouds->size());
 						}
@@ -2485,9 +2288,11 @@ bool RTABMapApp::exportMesh(
 
 						if(mesh->polygons.size())
 						{
-							if(textureSize > 0 && optimizedMaxPolygons > 0 && optimizedMaxPolygons < (int)mesh->polygons.size())
+							totalPolygons=(int)mesh->polygons.size();
+
+							if(optimizedMaxPolygons > 0 && optimizedMaxPolygons < (int)mesh->polygons.size())
 							{
-	#ifndef DISABLE_VTK
+#ifndef DISABLE_VTK
 								unsigned int count = mesh->polygons.size();
 								float factor = 1.0f-float(optimizedMaxPolygons)/float(count);
 								LOGI("Mesh decimation (max polygons %d/%d -> factor=%f)...", optimizedMaxPolygons, (int)count, factor);
@@ -2511,9 +2316,9 @@ bool RTABMapApp::exportMesh(
 								{
 									UWARN("Decimated mesh has more polygons than before!");
 								}
-	#else
+#else
 								UWARN("RTAB-Map is not built with PCL-VTK module so mesh decimation cannot be used!");
-	#endif
+#endif
 							}
 
 							if(progressionStatus_.isCanceled())
@@ -2528,212 +2333,27 @@ bool RTABMapApp::exportMesh(
 
 							progressionStatus_.increment();
 
-							if(textureSize == 0)
+							rtabmap::util3d::denseMeshPostProcessing<pcl::PointXYZRGBNormal>(
+									mesh,
+									0.0f,
+									0,
+									mergedClouds,
+									optimizedColorRadius,
+									textureSize == 0,
+									optimizedCleanWhitePolygons,
+									optimizedMinClusterSize);
+
+							if(textureSize>0)
 							{
-								// colored polygon mesh
-								if(optimizedColorRadius >= 0.0f)
-								{
-									LOGI("Transferring color from point cloud to mesh...");
-									// transfer color from point cloud to mesh
-									pcl::search::KdTree<pcl::PointXYZRGBNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBNormal>(true));
-									tree->setInputCloud(mergedClouds);
-									pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr coloredCloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-									pcl::fromPCLPointCloud2(mesh->cloud, *coloredCloud);
-									std::vector<bool> coloredPts(coloredCloud->size());
-									for(unsigned int i=0; i<coloredCloud->size(); ++i)
-									{
-										std::vector<int> kIndices;
-										std::vector<float> kDistances;
-										pcl::PointXYZRGBNormal pt;
-										pt.x = coloredCloud->at(i).x;
-										pt.y = coloredCloud->at(i).y;
-										pt.z = coloredCloud->at(i).z;
-										if(optimizedColorRadius > 0.0f)
-										{
-											tree->radiusSearch(pt, optimizedColorRadius, kIndices, kDistances);
-										}
-										else
-										{
-											tree->nearestKSearch(pt, 1, kIndices, kDistances);
-										}
-										if(kIndices.size())
-										{
-											//compute average color
-											int r=0;
-											int g=0;
-											int b=0;
-											int a=0;
-											for(unsigned int j=0; j<kIndices.size(); ++j)
-											{
-												r+=(int)mergedClouds->at(kIndices[j]).r;
-												g+=(int)mergedClouds->at(kIndices[j]).g;
-												b+=(int)mergedClouds->at(kIndices[j]).b;
-												a+=(int)mergedClouds->at(kIndices[j]).a;
-											}
-											coloredCloud->at(i).r = r/kIndices.size();
-											coloredCloud->at(i).g = g/kIndices.size();
-											coloredCloud->at(i).b = b/kIndices.size();
-											coloredCloud->at(i).a = a/kIndices.size();
-											coloredPts.at(i) = true;
-										}
-										else
-										{
-											//white
-											coloredCloud->at(i).r = coloredCloud->at(i).g = coloredCloud->at(i).b = 255;
-											coloredPts.at(i) = false;
-										}
-									}
-
-									// recompute normals and remove polygons with no color
-									std::vector<pcl::Vertices> filteredPolygons(optimizedCleanWhitePolygons?mesh->polygons.size():0);
-									int oi=0;
-									for(unsigned int i=0; i<mesh->polygons.size(); ++i)
-									{
-										// recompute normals
-										pcl::Vertices & v = mesh->polygons[i];
-										UASSERT(v.vertices.size()>2);
-										Eigen::Vector3f v0(
-												coloredCloud->at(v.vertices[1]).x - coloredCloud->at(v.vertices[0]).x,
-												coloredCloud->at(v.vertices[1]).y - coloredCloud->at(v.vertices[0]).y,
-												coloredCloud->at(v.vertices[1]).z - coloredCloud->at(v.vertices[0]).z);
-										int last = v.vertices.size()-1;
-										Eigen::Vector3f v1(
-												coloredCloud->at(v.vertices[last]).x - coloredCloud->at(v.vertices[0]).x,
-												coloredCloud->at(v.vertices[last]).y - coloredCloud->at(v.vertices[0]).y,
-												coloredCloud->at(v.vertices[last]).z - coloredCloud->at(v.vertices[0]).z);
-										Eigen::Vector3f normal = v0.cross(v1);
-										normal.normalize();
-										// flat normal (per face)
-										for(unsigned int j=0; j<v.vertices.size(); ++j)
-										{
-											coloredCloud->at(v.vertices[j]).normal_x = normal[0];
-											coloredCloud->at(v.vertices[j]).normal_y = normal[1];
-											coloredCloud->at(v.vertices[j]).normal_z = normal[2];
-										}
-
-										if(optimizedCleanWhitePolygons)
-										{
-											bool coloredPolygon = true;
-											for(unsigned int j=0; j<mesh->polygons[i].vertices.size(); ++j)
-											{
-												if(!coloredPts.at(mesh->polygons[i].vertices[j]))
-												{
-													coloredPolygon = false;
-													break;
-												}
-											}
-											if(coloredPolygon)
-											{
-												filteredPolygons[oi++] = mesh->polygons[i];
-											}
-										}
-									}
-									if(optimizedCleanWhitePolygons)
-									{
-										filteredPolygons.resize(oi);
-										mesh->polygons = filteredPolygons;
-									}
-
-									pcl::toPCLPointCloud2(*coloredCloud, mesh->cloud);
-									LOGI("Transfering color from point cloud to mesh...done! %fs", timer.ticks());
-								}
-								else // recompute normals
-								{
-									pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-									pcl::fromPCLPointCloud2(mesh->cloud, *cloud);
-
-									for(unsigned int i=0; i<mesh->polygons.size(); ++i)
-									{
-										pcl::Vertices & v = mesh->polygons[i];
-										UASSERT(v.vertices.size()>2);
-										Eigen::Vector3f v0(
-												cloud->at(v.vertices[1]).x - cloud->at(v.vertices[0]).x,
-												cloud->at(v.vertices[1]).y - cloud->at(v.vertices[0]).y,
-												cloud->at(v.vertices[1]).z - cloud->at(v.vertices[0]).z);
-										int last = v.vertices.size()-1;
-										Eigen::Vector3f v1(
-												cloud->at(v.vertices[last]).x - cloud->at(v.vertices[0]).x,
-												cloud->at(v.vertices[last]).y - cloud->at(v.vertices[0]).y,
-												cloud->at(v.vertices[last]).z - cloud->at(v.vertices[0]).z);
-										Eigen::Vector3f normal = v0.cross(v1);
-										normal.normalize();
-										// flat normal (per face)
-										for(unsigned int j=0; j<v.vertices.size(); ++j)
-										{
-											cloud->at(v.vertices[j]).normal_x = normal[0];
-											cloud->at(v.vertices[j]).normal_y = normal[1];
-											cloud->at(v.vertices[j]).normal_z = normal[2];
-											cloud->at(v.vertices[j]).r = 255;
-											cloud->at(v.vertices[j]).g = 255;
-											cloud->at(v.vertices[j]).b = 255;
-										}
-									}
-									pcl::toPCLPointCloud2 (*cloud, mesh->cloud);
-								}
-								polygonMesh = mesh;
-								totalPolygons = mesh->polygons.size();
-							}
-							else
-							{
-								if(optimizedColorRadius > 0.0f && optimizedCleanWhitePolygons)
-								{
-									LOGI("Removing polygons too far from the cloud");
-									// transfer color from point cloud to mesh
-									pcl::search::KdTree<pcl::PointXYZRGBNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBNormal>(true));
-									tree->setInputCloud(mergedClouds);
-									pcl::PointCloud<pcl::PointXYZ>::Ptr optimizedCloud(new pcl::PointCloud<pcl::PointXYZ>);
-									pcl::fromPCLPointCloud2(mesh->cloud, *optimizedCloud);
-									std::vector<bool> closePts(optimizedCloud->size());
-									for(unsigned int i=0; i<optimizedCloud->size(); ++i)
-									{
-										std::vector<int> kIndices;
-										std::vector<float> kDistances;
-										pcl::PointXYZRGBNormal pt;
-										pt.x = optimizedCloud->at(i).x;
-										pt.y = optimizedCloud->at(i).y;
-										pt.z = optimizedCloud->at(i).z;
-										tree->radiusSearch(pt, optimizedColorRadius, kIndices, kDistances);
-										if(kIndices.size())
-										{
-											closePts.at(i) = true;
-										}
-										else
-										{
-											closePts.at(i) = false;
-										}
-									}
-
-									// remove far polygons
-									std::vector<pcl::Vertices> filteredPolygons(mesh->polygons.size());
-									int oi=0;
-									for(unsigned int i=0; i<mesh->polygons.size(); ++i)
-									{
-										bool keepPolygon = true;
-										for(unsigned int j=0; j<mesh->polygons[i].vertices.size(); ++j)
-										{
-											if(!closePts.at(mesh->polygons[i].vertices[j]))
-											{
-												keepPolygon = false;
-												break;
-											}
-										}
-										if(keepPolygon)
-										{
-											filteredPolygons[oi++] = mesh->polygons[i];
-										}
-									}
-									filteredPolygons.resize(oi);
-									mesh->polygons = filteredPolygons;
-
-									LOGI("Removing polygons too far from the cloud...done! %fs", timer.ticks());
-								}
-
-								LOGI("Texturing...");
+								LOGI("Texturing... cameraPoses=%d, cameraDepths=%d", (int)cameraPoses.size(), (int)cameraDepths.size());
 								textureMesh = rtabmap::util3d::createTextureMesh(
 										mesh,
 										cameraPoses,
 										cameraModels,
+										cameraDepths,
 										optimizedMaxTextureDistance,
+										0.0f,
+										0.0f,
 										optimizedMinTextureClusterSize,
 										std::vector<float>(),
 										&progressionStatus_,
@@ -2754,110 +2374,26 @@ bool RTABMapApp::exportMesh(
 								if(textureMesh->tex_coordinates.size() && optimizedCleanWhitePolygons)
 								{
 									LOGI("Cleanup mesh...");
-
-									// assume last texture is the occluded texture
-									textureMesh->tex_coordinates.pop_back();
-									textureMesh->tex_polygons.pop_back();
-									textureMesh->tex_materials.pop_back();
-
-									if(clusterRatio_>0.0f)
-									{
-										LOGI("Filter small polygon clusters...");
-
-										// concatenate all polygons
-										int totalSize = 0;
-										for(unsigned int t=0; t<textureMesh->tex_polygons.size(); ++t)
-										{
-											totalSize+=textureMesh->tex_polygons[t].size();
-										}
-										std::vector<pcl::Vertices> allPolygons(totalSize);
-										int oi=0;
-										for(unsigned int t=0; t<textureMesh->tex_polygons.size(); ++t)
-										{
-											for(unsigned int i=0; i<textureMesh->tex_polygons[t].size(); ++i)
-											{
-												allPolygons[oi++] =  textureMesh->tex_polygons[t][i];
-											}
-										}
-
-										// filter polygons
-										std::vector<std::set<int> > neighbors;
-										std::vector<std::set<int> > vertexToPolygons;
-										rtabmap::util3d::createPolygonIndexes(allPolygons,
-												textureMesh->cloud.data.size()/textureMesh->cloud.point_step,
-												neighbors,
-												vertexToPolygons);
-										std::list<std::list<int> > clusters = rtabmap::util3d::clusterPolygons(
-												neighbors,
-												optimizedMinTextureClusterSize);
-
-										std::set<int> validPolygons;
-										for(std::list<std::list<int> >::iterator kter=clusters.begin(); kter!=clusters.end(); ++kter)
-										{
-											for(std::list<int>::iterator jter=kter->begin(); jter!=kter->end(); ++jter)
-											{
-												validPolygons.insert(*jter);
-											}
-										}
-
-										// for each texture
-										unsigned int allPolygonsIndex = 0;
-										for(unsigned int t=0; t<textureMesh->tex_polygons.size(); ++t)
-										{
-											std::vector<pcl::Vertices> filteredPolygons(textureMesh->tex_polygons[t].size());
-	#if PCL_VERSION_COMPARE(>=, 1, 8, 0)
-											std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > filteredCoordinates(textureMesh->tex_coordinates[t].size());
-	#else
-											std::vector<Eigen::Vector2f> filteredCoordinates(textureMesh->tex_coordinates[t].size());
-	#endif
-											int oi=0;
-											unsigned int polygonSize = 0;
-											if(textureMesh->tex_polygons[t].size())
-											{
-												UASSERT(allPolygonsIndex < allPolygons.size());
-
-												polygonSize = textureMesh->tex_polygons[t][0].vertices.size();
-
-												UASSERT(filteredCoordinates.size() == textureMesh->tex_polygons[t].size()*polygonSize);
-												for(unsigned int i=0; i<textureMesh->tex_polygons[t].size(); ++i)
-												{
-													if(validPolygons.find(allPolygonsIndex) != validPolygons.end())
-													{
-														filteredPolygons[oi] = textureMesh->tex_polygons[t].at(i);
-														for(unsigned int j=0; j<polygonSize; ++j)
-														{
-															filteredCoordinates[oi*polygonSize + j] = textureMesh->tex_coordinates[t][i*polygonSize + j];
-														}
-														++oi;
-													}
-													++allPolygonsIndex;
-												}
-												filteredPolygons.resize(oi);
-												filteredCoordinates.resize(oi*polygonSize);
-												textureMesh->tex_polygons[t] = filteredPolygons;
-												textureMesh->tex_coordinates[t] = filteredCoordinates;
-											}
-										}
-
-										LOGI("Filtered %d polygons.", (int)(allPolygons.size()-validPolygons.size()));
-									}
-
-									for(unsigned int t=0; t<textureMesh->tex_polygons.size(); ++t)
-									{
-										totalPolygons+=textureMesh->tex_polygons[t].size();
-									}
-
-									LOGI("Cleanup mesh... done! %fs (total polygons=%d)", timer.ticks(), totalPolygons);
+									rtabmap::util3d::cleanTextureMesh(*textureMesh, 0);
+									LOGI("Cleanup mesh... done! %fs", timer.ticks());
 								}
-								else
+
+								totalPolygons = 0;
+								for(unsigned int t=0; t<textureMesh->tex_polygons.size(); ++t)
 								{
-									for(unsigned int t=0; t<textureMesh->tex_polygons.size(); ++t)
-									{
-										totalPolygons+=textureMesh->tex_polygons[t].size();
-									}
+									totalPolygons+=textureMesh->tex_polygons[t].size();
 								}
 							}
+							else
+							{
+								totalPolygons = (int)mesh->polygons.size();
+								polygonMesh = mesh;
+							}
 						}
+					}
+					else
+					{
+						UERROR("Merged cloud too small (%d points) to create polygons!", (int)mergedClouds->size());
 					}
 				}
 				else // organized meshes
@@ -3033,31 +2569,17 @@ bool RTABMapApp::exportMesh(
 				if(textureSize>0 && totalPolygons && textureMesh->tex_materials.size())
 				{
 					LOGI("Merging %d textures...", (int)textureMesh->tex_materials.size());
-					globalTexture = mergeTextures(*textureMesh, textureSize, vertexToPixels);
-
-					if(progressionStatus_.isCanceled())
-					{
-						if(blockRendering)
-						{
-							renderingMutex_.unlock();
-						}
-						exporting_ = false;
-						return false;
-					}
-
-					std::string baseName = uSplit(UFile::getName(filePath), '.').front();
-					std::string textureDirectory = UDirectory::getDir(filePath);
-					std::string fullPath = textureDirectory+UDirectory::separator()+baseName+".jpg";
-					textureMesh->tex_materials[0].tex_file = baseName+".jpg";
-					LOGI("Saving texture to %s.", fullPath.c_str());
-					if(!cv::imwrite(fullPath, globalTexture))
-					{
-						LOGI("Failed saving %s!", fullPath.c_str());
-					}
-					else
-					{
-						LOGI("Saved %s (%d bytes).", fullPath.c_str(), globalTexture.total()*globalTexture.channels());
-					}
+					globalTextures = rtabmap::util3d::mergeTextures(
+							*textureMesh,
+							std::map<int, cv::Mat>(),
+							std::map<int, std::vector<rtabmap::CameraModel> >(),
+							rtabmap_->getMemory(),
+							0,
+							textureSize,
+							textureCount,
+							vertexToPixels,
+							true, 10.0f, true ,true, 0, 0, 0, false,
+							&progressionStatus_);
 				}
 				if(progressionStatus_.isCanceled())
 				{
@@ -3078,45 +2600,49 @@ bool RTABMapApp::exportMesh(
 					UASSERT((int)polygonMesh->polygons.size() == totalPolygons);
 					if(polygonMesh->polygons.size())
 					{
-						LOGI("Saving ply (%d vertices, %d polygons) to %s.", (int)polygonMesh->cloud.data.size()/polygonMesh->cloud.point_step, totalPolygons, filePath.c_str());
-						success = pcl::io::savePLYFile(filePath, *polygonMesh) == 0;
-						if(success)
+						// save in database
+						pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+						pcl::fromPCLPointCloud2(polygonMesh->cloud, *cloud);
+						cv::Mat cloudMat = rtabmap::compressData2(rtabmap::util3d::laserScanFromPointCloud(*cloud)); // for database
+						std::vector<std::vector<std::vector<unsigned int> > > polygons(1);
+						polygons[0].resize(polygonMesh->polygons.size());
+						for(unsigned int p=0; p<polygonMesh->polygons.size(); ++p)
 						{
-							UINFO("Saved ply to %s!", filePath.c_str());
-							exportedMesh_.reset(new pcl::TextureMesh);
-							exportedMesh_->cloud = polygonMesh->cloud;
-							exportedMesh_->tex_polygons.push_back(polygonMesh->polygons);
+							polygons[0][p] = polygonMesh->polygons[p].vertices;
 						}
-						else
-						{
-							UERROR("Failed saving ply to %s!", filePath.c_str());
-						}
+						boost::mutex::scoped_lock  lock(rtabmapMutex_);
+						rtabmap_->getMemory()->saveOptimizedMesh(cloudMat, poses, polygons);
+						success = true;
 					}
 				}
 				else if(textureMesh->tex_materials.size())
 				{
-					UASSERT(textureMesh->tex_polygons.size() && (int)textureMesh->tex_polygons[0].size() == totalPolygons);
-					LOGI("Saving obj (%d vertices, %d polygons) to %s.", (int)textureMesh->cloud.data.size()/textureMesh->cloud.point_step, totalPolygons, filePath.c_str());
-					success = pcl::io::saveOBJFile(filePath, *textureMesh) == 0;
-					if(success)
+					pcl::PointCloud<pcl::PointNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointNormal>);
+					pcl::fromPCLPointCloud2(textureMesh->cloud, *cloud);
+					cv::Mat cloudMat = rtabmap::compressData2(rtabmap::util3d::laserScanFromPointCloud(*cloud)); // for database
+
+					// save in database
+					std::vector<std::vector<std::vector<unsigned int> > > polygons(textureMesh->tex_polygons.size());
+					for(unsigned int t=0; t<textureMesh->tex_polygons.size(); ++t)
 					{
-						LOGI("Saved obj to %s!", filePath.c_str());
-						exportedMesh_ = textureMesh;
-						exportedTexture_ = globalTexture;
+						polygons[t].resize(textureMesh->tex_polygons[t].size());
+						for(unsigned int p=0; p<textureMesh->tex_polygons[t].size(); ++p)
+						{
+							polygons[t][p] = textureMesh->tex_polygons[t][p].vertices;
+						}
 					}
-					else
-					{
-						UERROR("Failed saving obj to %s!", filePath.c_str());
-					}
+					boost::mutex::scoped_lock  lock(rtabmapMutex_);
+					rtabmap_->getMemory()->saveOptimizedMesh(cloudMat, poses, polygons, textureMesh->tex_coordinates, globalTextures);
+					success = true;
 				}
 				else
 				{
-					UERROR("Failed exporting obj to %s! There are no textures!", filePath.c_str());
+					UERROR("Failed exporting texture mesh! There are no textures!");
 				}
 			}
 			else
 			{
-				UERROR("Failed exporting to %s! There are no polygons!", filePath.c_str());
+				UERROR("Failed exporting mesh! There are no polygons!");
 			}
 		}
 		else // Point cloud
@@ -3224,22 +2750,17 @@ bool RTABMapApp::exportMesh(
 					mergedClouds = rtabmap::util3d::voxelize(mergedClouds, cloudVoxelSize);
 				}
 
-				pcl::PolygonMesh mesh;
-				pcl::toPCLPointCloud2(*mergedClouds, mesh.cloud);
-
-				LOGI("Saving ply (%d points) to %s.", (int)mergedClouds->size(), filePath.c_str());
-				success = pcl::io::savePLYFileBinary(filePath, mesh) == 0;
-				if(success)
+				// save in database
 				{
-					LOGI("Saved ply to %s!", filePath.c_str());
-					mergedClouds->clear();
-					exportedMesh_.reset(new pcl::TextureMesh);
-					exportedMesh_->cloud = mesh.cloud;
+					cv::Mat cloudMat = rtabmap::compressData2(rtabmap::util3d::laserScanFromPointCloud(*mergedClouds)); // for database
+					boost::mutex::scoped_lock  lock(rtabmapMutex_);
+					rtabmap_->getMemory()->saveOptimizedMesh(cloudMat, poses);
+					success = true;
 				}
-				else
-				{
-					UERROR("Failed saving ply to %s!", filePath.c_str());
-				}
+			}
+			else
+			{
+				UERROR("Merged cloud is empty!");
 			}
 		}
 
@@ -3269,21 +2790,154 @@ bool RTABMapApp::exportMesh(
 bool RTABMapApp::postExportation(bool visualize)
 {
 	LOGI("postExportation(visualize=%d)", visualize?1:0);
-	if(visualize && exportedMesh_->cloud.data.size())
+	optMesh_.reset(new pcl::TextureMesh);
+	optTexture_ = cv::Mat();
+	exportedMeshUpdated_ = false;
+	visualizingMesh_ = false;
+
+	if(visualize)
 	{
-		boost::mutex::scoped_lock  lock(renderingMutex_);
-		visualizingMesh_ = true;
-		exportedMeshUpdated_ = true;
-	}
-	else
-	{
-		exportedMesh_.reset(new pcl::TextureMesh);
-		exportedTexture_ = cv::Mat();
-		exportedMeshUpdated_ = false;
-		visualizingMesh_ = false;
+		cv::Mat cloudMat;
+		std::vector<std::vector<std::vector<unsigned int> > > polygons;
+#if PCL_VERSION_COMPARE(>=, 1, 8, 0)
+		std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > texCoords;
+#else
+		std::vector<std::vector<Eigen::Vector2f> > texCoords;
+#endif
+		cv::Mat textures;
+		std::map<int, rtabmap::Transform> optPoses;
+		if(rtabmap_ && rtabmap_->getMemory())
+		{
+			cloudMat = rtabmap_->getMemory()->loadOptimizedMesh(&optPoses, &polygons, &texCoords, &textures);
+			if(!cloudMat.empty())
+			{
+				LOGI("postExportation: Found optimized mesh! Visualizing it.");
+				optMesh_ = rtabmap::util3d::assembleTextureMesh(cloudMat, polygons, texCoords, textures, true);
+				optTexture_ = textures;
+
+				boost::mutex::scoped_lock  lock(renderingMutex_);
+				visualizingMesh_ = true;
+				exportedMeshUpdated_ = true;
+			}
+			else
+			{
+				LOGI("postExportation: No optimized mesh found.");
+			}
+		}
 	}
 
 	return visualizingMesh_;
+}
+
+bool RTABMapApp::writeExportedMesh(const std::string & directory, const std::string & name)
+{
+	LOGI("writeExportedMesh: dir=%s name=%s", directory.c_str(), name.c_str());
+	exporting_ = true;
+
+	bool success = false;
+
+	pcl::PolygonMesh::Ptr polygonMesh(new pcl::PolygonMesh);
+	pcl::TextureMesh::Ptr textureMesh(new pcl::TextureMesh);
+	cv::Mat cloudMat;
+	std::vector<std::vector<std::vector<unsigned int> > > polygons;
+#if PCL_VERSION_COMPARE(>=, 1, 8, 0)
+	std::vector<std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f> > > texCoords;
+#else
+	std::vector<std::vector<Eigen::Vector2f> > texCoords;
+#endif
+	cv::Mat textures;
+	std::map<int, rtabmap::Transform> optPoses;
+	if(rtabmap_ && rtabmap_->getMemory())
+	{
+		cloudMat = rtabmap_->getMemory()->loadOptimizedMesh(&optPoses, &polygons, &texCoords, &textures);
+		if(!cloudMat.empty())
+		{
+			LOGI("writeExportedMesh: Found optimized mesh!");
+			if(textures.empty())
+			{
+				polygonMesh = rtabmap::util3d::assemblePolygonMesh(cloudMat, polygons.size() == 1?polygons[0]:std::vector<std::vector<unsigned int> >());
+			}
+			else
+			{
+				textureMesh = rtabmap::util3d::assembleTextureMesh(cloudMat, polygons, texCoords, textures, false);
+			}
+		}
+		else
+		{
+			LOGI("writeExportedMesh: No optimized mesh found.");
+		}
+	}
+
+	if(polygonMesh->cloud.data.size())
+	{
+		// Point cloud PLY
+		std::string filePath = directory + UDirectory::separator() + name + ".ply";
+		LOGI("Saving ply (%d vertices, %d polygons) to %s.", (int)polygonMesh->cloud.data.size()/polygonMesh->cloud.point_step, (int)polygonMesh->polygons.size(), filePath.c_str());
+		success = pcl::io::savePLYFileBinary(filePath, *polygonMesh) == 0;
+		if(success)
+		{
+			LOGI("Saved ply to %s!", filePath.c_str());
+		}
+		else
+		{
+			UERROR("Failed saving ply to %s!", filePath.c_str());
+		}
+	}
+	else if(textureMesh->cloud.data.size())
+	{
+		// TextureMesh OBJ
+		LOGD("Saving texture(s) (%d)", textures.empty()?0:textures.cols/textures.rows);
+		UASSERT(textures.empty() || textures.cols % textures.rows == 0);
+		UASSERT((int)textureMesh->tex_materials.size() == textures.cols/textures.rows);
+		for(unsigned int i=0; i<textureMesh->tex_materials.size(); ++i)
+		{
+			std::string baseNameNum = name;
+			if(textureMesh->tex_materials.size()>1)
+			{
+				baseNameNum+=uNumber2Str(i);
+			}
+			std::string fullPath = directory+UDirectory::separator()+baseNameNum+".jpg";
+			textureMesh->tex_materials[i].tex_file = baseNameNum+".jpg";
+			LOGI("Saving texture to %s.", fullPath.c_str());
+			success = cv::imwrite(fullPath, textures(cv::Range::all(), cv::Range(i*textures.rows, (i+1)*textures.rows)));
+			if(!success)
+			{
+				LOGI("Failed saving %s!", fullPath.c_str());
+			}
+			else
+			{
+				LOGI("Saved %s.", fullPath.c_str());
+			}
+		}
+
+		if(success)
+		{
+			// With Sketchfab, the OBJ models are rotated 90 degrees on x axis, so rotate -90 to have model in right position
+			pcl::PointCloud<pcl::PointNormal>::Ptr cloud(new pcl::PointCloud<pcl::PointNormal>);
+			pcl::fromPCLPointCloud2(textureMesh->cloud, *cloud);
+			cloud = rtabmap::util3d::transformPointCloud(cloud, rtabmap::Transform(1,0,0,0, 0,0,1,0, 0,-1,0,0));
+			pcl::toPCLPointCloud2(*cloud, textureMesh->cloud);
+			std::string filePath = directory + UDirectory::separator() + name + ".obj";
+			int totalPolygons = 0;
+			for(unsigned int i=0;i<textureMesh->tex_polygons.size(); ++i)
+			{
+				totalPolygons += textureMesh->tex_polygons[i].size();
+			}
+			LOGI("Saving obj (%d vertices, %d polygons) to %s.", (int)textureMesh->cloud.data.size()/textureMesh->cloud.point_step, totalPolygons, filePath.c_str());
+			success = pcl::io::saveOBJFile(filePath, *textureMesh) == 0;
+
+			if(success)
+			{
+				LOGI("Saved obj to %s!", filePath.c_str());
+			}
+			else
+			{
+				UERROR("Failed saving obj to %s!", filePath.c_str());
+			}
+		}
+	}
+	exporting_ = false;
+	return success;
 }
 
 int RTABMapApp::postProcessing(int approach)

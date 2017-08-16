@@ -37,7 +37,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QtGui/QDesktopServices>
 #include <QtGui/QContextMenuEvent>
 #include <QColorDialog>
+#ifdef QT_SVG_LIB
 #include <QtSvg/QSvgGenerator>
+#endif
 #include <QInputDialog>
 #include <QMessageBox>
 
@@ -1176,19 +1178,19 @@ void GraphViewer::setMaxLinkLength(float value)
 }
 void GraphViewer::setGraphVisible(bool visible)
 {
-	_graphRoot->setVisible(!_graphRoot->isVisible());
+	_graphRoot->setVisible(visible);
 }
 void GraphViewer::setGlobalPathVisible(bool visible)
 {
-	_globalPathRoot->setVisible(!_globalPathRoot->isVisible());
+	_globalPathRoot->setVisible(visible);
 }
 void GraphViewer::setLocalPathVisible(bool visible)
 {
-	_localPathRoot->setVisible(!_localPathRoot->isVisible());
+	_localPathRoot->setVisible(visible);
 }
 void GraphViewer::setGtGraphVisible(bool visible)
 {
-	_gtGraphRoot->setVisible(!_gtGraphRoot->isVisible());
+	_gtGraphRoot->setVisible(visible);
 }
 
 void GraphViewer::restoreDefaults()
@@ -1233,6 +1235,9 @@ void GraphViewer::contextMenuEvent(QContextMenuEvent * event)
 	QMenu menu;
 	QAction * aScreenShotPNG = menu.addAction(tr("Take a screenshot (PNG)"));
 	QAction * aScreenShotSVG = menu.addAction(tr("Take a screenshot (SVG)"));
+#ifndef QT_SVG_LIB
+	aScreenShotSVG->setEnabled(false);
+#endif
 	menu.addSeparator();
 
 	QAction * aChangeNodeColor = menu.addAction(createIcon(_nodeColor), tr("Set node color..."));
@@ -1361,7 +1366,6 @@ void GraphViewer::contextMenuEvent(QContextMenuEvent * event)
 	{
 		aShowHideGtGraph = menu.addAction(tr("Show ground truth graph"));
 	}
-	aShowHideGridMap->setEnabled(!_gridMap->pixmap().isNull());
 	aShowHideGraph->setEnabled(_nodeItems.size());
 	aShowHideGlobalPath->setEnabled(_globalPathLinkItems.size());
 	aShowHideLocalPath->setEnabled(_localPathLinkItems.size());
@@ -1423,6 +1427,7 @@ void GraphViewer::contextMenuEvent(QContextMenuEvent * event)
 			}
 			else
 			{
+#ifdef QT_SVG_LIB
 				QSvgGenerator svgGen;
 
 				svgGen.setFileName( targetDir + name );
@@ -1434,6 +1439,9 @@ void GraphViewer::contextMenuEvent(QContextMenuEvent * event)
 				QPainter painter( &svgGen );
 
 				this->scene()->render(&painter);
+#else
+				UERROR("RTAB-MAp is not built with Qt's SVG library, cannot save picture in svg format.");
+#endif
 			}
 
 			//reset scale
@@ -1626,6 +1634,10 @@ void GraphViewer::contextMenuEvent(QContextMenuEvent * event)
 	else if(r == aShowHideGridMap)
 	{
 		this->setGridMapVisible(!this->isGridMapVisible());
+		if(_gridMap->isVisible())
+		{
+			emit mapShownRequested();
+		}
 	}
 	else if(r == aShowHideOrigin)
 	{

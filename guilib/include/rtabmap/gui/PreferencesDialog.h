@@ -149,6 +149,7 @@ public:
 	bool isCacheSavedInFigures() const;
 	bool notifyWhenNewGlobalPathIsReceived() const;
 	int getOdomQualityWarnThr() const;
+	bool isOdomOnlyInliersShown() const;
 	bool isPosteriorGraphView() const;
 	int getOdomRegistrationApproach() const;
 	bool isOdomDisabled() const;
@@ -297,12 +298,14 @@ private slots:
 	void addParameter(double value);
 	void addParameter(const QString & value);
 	void updatePredictionPlot();
+	void updateOdometryVisibility();
 	void updateKpROI();
 	void updateStereoDisparityVisibility();
 	void useOdomFeatures();
 	void useGridProjRayTracing();
 	void changeWorkingDirectory();
 	void changeDictionaryPath();
+	void changeOdometryORBSLAM2Vocabulary();
 	void readSettingsEnd();
 	void setupTreeView();
 	void updateBasicParameter();

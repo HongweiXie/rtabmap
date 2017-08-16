@@ -69,6 +69,7 @@ public:
 			const std::map<int, int> & mapIds,
 			const QMap<int, Signature> & cachedSignatures,
 			const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds,
+			const std::map<int, cv::Mat> & cachedScans,
 			const QString & workingDirectory,
 			const ParametersMap & parameters);
 
@@ -78,6 +79,7 @@ public:
 			const std::map<int, int> & mapIds,
 			const QMap<int, Signature> & cachedSignatures,
 			const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds,
+			const std::map<int, cv::Mat> & cachedScans,
 			const QString & workingDirectory,
 			const ParametersMap & parameters);
 
@@ -100,13 +102,16 @@ private:
 			const std::map<int, Transform> & poses,
 			const QMap<int, Signature> & cachedSignatures,
 			const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds,
-			const ParametersMap & parameters) const;
+			const std::map<int, cv::Mat> & cachedScans,
+			const ParametersMap & parameters,
+			bool & has2dScans) const;
 	bool getExportedClouds(
 				const std::map<int, Transform> & poses,
 				const std::multimap<int, Link> & links,
 				const std::map<int, int> & mapIds,
 				const QMap<int, Signature> & cachedSignatures,
 				const std::map<int, std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::IndicesPtr> > & cachedClouds,
+				const std::map<int, cv::Mat> & cachedScans,
 				const QString & workingDirectory,
 				const ParametersMap & parameters,
 				std::map<int, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr> & clouds,
@@ -116,17 +121,9 @@ private:
 	void saveClouds(const QString & workingDirectory, const std::map<int, Transform> & poses, const std::map<int, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr> & clouds, bool binaryMode = true);
 	void saveMeshes(const QString & workingDirectory, const std::map<int, Transform> & poses, const std::map<int, pcl::PolygonMesh::Ptr> & meshes, bool binaryMode = true);
 	void saveTextureMeshes(const QString & workingDirectory, const std::map<int, Transform> & poses, std::map<int, pcl::TextureMesh::Ptr> & textureMeshes, const QMap<int, Signature> & cachedSignatures, const std::vector<std::map<int, pcl::PointXY> > & textureVertexToPixels);
-	cv::Mat mergeTextures(pcl::TextureMesh & mesh, const QMap<int, Signature> & cachedSignatures, const std::vector<std::map<int, pcl::PointXY> > & textureVertexToPixels) const;
 
 	void setSaveButton();
 	void setOkButton();
-	void enableRegeneration(bool enabled);
-
-	void denseMeshPostProcessing(
-			int id,
-			pcl::PolygonMeshPtr & mesh,
-			bool lostColors,
-			pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr & cloud);
 
 private:
 	Ui_ExportCloudsDialog * _ui;

@@ -28,6 +28,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rtabmap/core/OdometryF2M.h>
 #include "rtabmap/core/Odometry.h"
 #include "rtabmap/core/OdometryF2F.h"
+#include "rtabmap/core/OdometryFovis.h"
+#include "rtabmap/core/OdometryViso2.h"
+#include "rtabmap/core/OdometryDVO.h"
+#include "rtabmap/core/OdometryORBSLAM2.h"
 #include "rtabmap/core/OdometryInfo.h"
 #include "rtabmap/core/util3d.h"
 #include "rtabmap/core/util3d_mapping.h"
@@ -56,6 +60,18 @@ Odometry * Odometry::create(Odometry::Type & type, const ParametersMap & paramet
 	Odometry * odometry = 0;
 	switch(type)
 	{
+	case Odometry::kTypeORBSLAM2:
+		odometry = new OdometryORBSLAM2(parameters);
+		break;
+	case Odometry::kTypeDVO:
+		odometry = new OdometryDVO(parameters);
+		break;
+	case Odometry::kTypeViso2:
+		odometry = new OdometryViso2(parameters);
+		break;
+	case Odometry::kTypeFovis:
+		odometry = new OdometryFovis(parameters);
+		break;
 	case Odometry::kTypeF2F:
 		odometry = new OdometryF2F(parameters);
 		break;
@@ -528,11 +544,6 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 			distanceTravelled_ += t.getNorm();
 			info->distanceTravelled = distanceTravelled_;
 		}
-
-		info->varianceLin *= t.getNorm();
-		info->varianceAng *= t.getAngle();
-		info->varianceLin = info->varianceLin>0.0f?info->varianceLin:0.0001f; // epsilon if exact transform
-		info->varianceAng = info->varianceAng>0.0f?info->varianceAng:0.0001f; // epsilon if exact transform
 
 		return _pose *= t; // update
 	}

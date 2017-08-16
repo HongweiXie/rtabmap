@@ -42,6 +42,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pcl/point_types.h>
 
 #include <rtabmap/core/Link.h>
+#include <rtabmap/core/Signature.h>
 
 class Ui_DatabaseViewer;
 class QGraphicsScene;
@@ -88,15 +89,16 @@ private slots:
 	void generateGraph();
 	void exportDatabase();
 	void extractImages();
+	void exportPosesRaw();
+	void exportPosesRGBDSLAM();
+	void exportPosesKITTI();
+	void exportPosesTORO();
+	void exportPosesG2O();
 	void generateLocalGraph();
-	void generateTOROGraph();
-	void generateG2OGraph();
 	void regenerateLocalMaps();
 	void regenerateCurrentLocalMaps();
 	void view3DMap();
-	void view3DLaserScans();
 	void generate3DMap();
-	void generate3DLaserScans();
 	void detectMoreLoopClosures();
 	void refineAllNeighborLinks();
 	void refineAllLoopClosureLinks();
@@ -145,10 +147,8 @@ private:
 	void updateConstraintView(
 			const rtabmap::Link & link,
 			bool updateImageSliders = true,
-			const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloudFrom = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>),
-			const pcl::PointCloud<pcl::PointXYZ>::Ptr & cloudTo = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>),
-			const pcl::PointCloud<pcl::PointXYZ>::Ptr & scanFrom = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>),
-			const pcl::PointCloud<pcl::PointXYZ>::Ptr & scanTo = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>));
+			const Signature & signatureFrom = Signature(0),
+			const Signature & signatureTo = Signature(0));
 	void updateConstraintButtons();
 	Link findActiveLink(int from, int to);
 	bool containsLink(
@@ -160,6 +160,7 @@ private:
 	void updateLoopClosuresSlider(int from = 0, int to = 0);
 	void refineConstraint(int from, int to,  bool silent);
 	bool addConstraint(int from, int to, bool silent);
+	void exportPoses(int format);
 
 private:
 	Ui_DatabaseViewer * ui_;
